@@ -151,8 +151,8 @@ function App() {
     setLoading(true)
     setError(null)
     const url = clientId
-      ? `http://localhost:3000/catalog?clientId=${clientId}`
-      : `http://localhost:3000/catalog`
+      ? `${import.meta.env.VITE_API_URL}/catalog?clientId=${clientId}`
+      : `${import.meta.env.VITE_API_URL}/catalog`
 
     fetch(url)
       .then((res) => {
@@ -182,7 +182,7 @@ function App() {
 
   const handlePriceSave = async (productId, newPrice) => {
     try {
-      const res = await fetch(`http://localhost:3000/catalog/${productId}/price`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/catalog/${productId}/price`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ price: newPrice }),
@@ -201,7 +201,7 @@ function App() {
     setFormError(null)
 
     try {
-      const res = await fetch('http://localhost:3000/catalog/products', {
+      const res = await fetch('${import.meta.env.VITE_API_URL}/catalog/products', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -282,7 +282,7 @@ function App() {
     const validRows = csvValidation.filter((v) => v.errors.length === 0).map((v) => v.row)
 
     try {
-      const res = await fetch('http://localhost:3000/catalog/products/bulk', {
+      const res = await fetch('${import.meta.env.VITE_API_URL}/catalog/products/bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rows: validRows }),
