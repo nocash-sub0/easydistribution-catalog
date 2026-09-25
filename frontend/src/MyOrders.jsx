@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { apiFetch, logout } from './api'
-import { APP_NAME, LangSwitch, useLang } from './i18n'
+import { LangSwitch, useLang } from './i18n'
+import Logo from './Logo'
 
 // Страница «Мои заказы» для вошедшего покупателя
 export default function MyOrders({ onBack }) {
@@ -25,9 +26,7 @@ export default function MyOrders({ onBack }) {
     <div>
       <header className="header">
         <div className="header-inner">
-          <div className="logo" onClick={onBack}>
-            {APP_NAME}
-          </div>
+          <Logo onClick={onBack} />
           <div style={{ flex: 1, fontSize: '18px', fontWeight: 600 }}>{t('myOrders')}</div>
           <LangSwitch />
           <button className="btn btn-ghost" onClick={logout}>

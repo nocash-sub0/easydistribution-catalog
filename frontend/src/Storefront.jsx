@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { apiFetch, logout } from './api'
 import { APP_NAME, LangSwitch, useLang } from './i18n'
 import { categoryIcon, imageUrl } from './images'
+import Logo from './Logo'
 
 // Последний загруженный каталог хранится в браузере: при следующем открытии товары видны сразу,
 // а свежие цены подгружаются в фоне (важно, пока сервер на Render «просыпается»)
@@ -37,8 +38,13 @@ function formatMDL(value) {
 function ProductCard({ product, qty, onChangeQty }) {
   const { t, unit } = useLang()
   const hasPrice = product.saleUnitPriceWithVat !== null
+  // stock === null — остаток не ведётся, товар всегда доступен
+  const tracked = product.stock !== null && product.stock !== undefined
+  const outOfStock = tracked && product.stock <= 0
+  const lowStock = tracked && product.stock > 0 && product.stock <= 10
+  const canAddMore = !tracked || qty < product.stock
   return (
-    <div className="card">
+    <div className={'card' + (outOfStock ? ' card-out' : '')}>
       {product.priceSource === 'client' && <span className="tag-special">{t('specialPrice')}</span>}
       <div className="card-img">
         {imageUrl(product) ? (
@@ -66,15 +72,21 @@ function ProductCard({ product, qty, onChangeQty }) {
         <div className="price-sub">{t('priceOnRequest')}</div>
       )}
 
+      {lowStock && (
+        <div className="stock-low">{t('stockLeft', { n: product.stock, unit: unit(product.saleUnit) })}</div>
+      )}
+
       {qty > 0 ? (
         <div className="qty">
           <button onClick={() => onChangeQty(product.id, qty - 1)}>−</button>
           <strong>{qty}</strong>
-          <button onClick={() => onChangeQty(product.id, qty + 1)}>+</button>
+          <button disabled={!canAddMore} onClick={() => onChangeQty(product.id, qty + 1)}>
+            +
+          </button>
         </div>
       ) : (
-        <button className="btn btn-yellow" disabled={!hasPrice} onClick={() => onChangeQty(product.id, 1)}>
-          {t('addToCart')}
+        <button className="btn btn-yellow" disabled={!hasPrice || outOfStock} onClick={() => onChangeQty(product.id, 1)}>
+          {outOfStock ? t('outOfStock') : t('addToCart')}
         </button>
       )}
     </div>
@@ -172,9 +184,14 @@ export default function Storefront({ session, cart, onChangeQty, onCheckout, onO
 
       <header className="header">
         <div className="header-inner">
-          <div className="logo" onClick={() => { setCategory('all'); setSearch('') }}>
-            {APP_NAME}
-          </div>
+          <Logo
+            onClick={() => {
+              setCategory('all')
+              setSearch('')
+              setShowCart(false)
+              window.scrollTo(0, 0)
+            }}
+          />
 
           <div className="search">
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('search')} />

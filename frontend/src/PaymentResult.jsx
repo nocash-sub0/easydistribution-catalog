@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { apiFetch } from './api'
-import { APP_NAME, LangSwitch, useLang } from './i18n'
+import { LangSwitch, useLang } from './i18n'
+import Logo from './Logo'
 
 // Страница, на которую Stripe возвращает клиента после оплаты (?payment=success|cancelled&order=ID)
 export default function PaymentResult({ session, onBack }) {
@@ -41,9 +42,7 @@ export default function PaymentResult({ session, onBack }) {
     <div>
       <header className="header">
         <div className="header-inner">
-          <div className="logo" onClick={onBack}>
-            {APP_NAME}
-          </div>
+          <Logo onClick={onBack} />
           <div style={{ flex: 1 }} />
           <LangSwitch />
         </div>

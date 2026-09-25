@@ -54,6 +54,11 @@ const SERVER_ERRORS = {
   'Clientul are comenzi și nu poate fi șters': 'errClientHasOrders',
   'Resetarea parolei nu este configurată': 'errResetOff',
   'Linkul a expirat sau este invalid': 'errResetLink',
+  'Produs cu acest cod există deja': 'errDupCode',
+  'Completați codul, denumirea și categoria': 'errFieldsRequired',
+  'Coeficient invalid': 'errFactorInvalid',
+  'Stoc invalid': 'errStockInvalid',
+  'cotă TVA invalidă': 'errVat',
 }
 
 // Единицы измерения товаров: переводим только известные, остальные показываем как есть
@@ -89,6 +94,8 @@ export function LangProvider({ children }) {
     if (!message) return message
     const prefix = 'Produsul nu are preț: '
     if (message.startsWith(prefix)) return t('errNoPrice', { name: message.slice(prefix.length) })
+    const stockPrefix = 'Stoc insuficient: '
+    if (message.startsWith(stockPrefix)) return t('errStock', { name: message.slice(stockPrefix.length) })
     return SERVER_ERRORS[message] ? t(SERVER_ERRORS[message]) : message
   }
 

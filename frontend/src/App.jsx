@@ -4,9 +4,11 @@ import Papa from 'papaparse'
 import PriceLists from './PriceLists'
 import Orders from './Orders'
 import Clients from './Clients'
+import ProductEditor from './ProductEditor'
 import { apiFetch, logout } from './api'
 import { categoryIcon, deleteProductImage, imageUrl, uploadProductImage } from './images'
-import { APP_NAME, LangSwitch, useLang } from './i18n'
+import { LangSwitch, useLang } from './i18n'
+import Logo from './Logo'
 
 function SkeletonRow() {
   return (
@@ -81,7 +83,7 @@ function ImageCell({ product, onChanged }) {
   )
 }
 
-function VirtualizedTable({ products, editingId, setEditingId, handlePriceSave, onImageChanged }) {
+function VirtualizedTable({ products, editingId, setEditingId, handlePriceSave, onImageChanged, onEdit }) {
   const { t } = useLang()
   const parentRef = useRef(null)
 
@@ -103,6 +105,8 @@ function VirtualizedTable({ products, editingId, setEditingId, handlePriceSave, 
         <div style={{ width: '180px' }}>{t('colPriceBax')}</div>
         <div style={{ width: '60px' }}>TVA</div>
         <div style={{ width: '100px' }}>{t('colSource')}</div>
+        <div style={{ width: '80px' }}>{t('fStock')}</div>
+        <div style={{ width: '50px' }} />
       </div>
 
       <div
@@ -169,6 +173,14 @@ function VirtualizedTable({ products, editingId, setEditingId, handlePriceSave, 
                 </div>
                 <div style={{ width: '60px' }}>{product.vatRate}%</div>
                 <div style={{ width: '100px' }}>{product.priceSource}</div>
+                <div style={{ width: '80px', color: product.stock === 0 ? '#b42318' : undefined }}>
+                  {product.stock === null ? '∞' : product.stock}
+                </div>
+                <div style={{ width: '50px' }}>
+                  <button type="button" title={t('editProduct')} onClick={() => onEdit(product.id)}>
+                    ✏️
+                  </button>
+                </div>
               </div>
             )
           })}
@@ -190,6 +202,7 @@ function App({ tab, onTab, onOpenShop }) {
   const [clientId, setClientId] = useState('')
   const [clientList, setClientList] = useState([])
   const [editingId, setEditingId] = useState(null)
+  const [editProductId, setEditProductId] = useState(null)
 
   const [searchInput, setSearchInput] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
@@ -208,7 +221,6 @@ function App({ tab, onTab, onOpenShop }) {
   })
   const [formError, setFormError] = useState(null)
 
-  const [csvRows, setCsvRows] = useState([])
   const [csvValidation, setCsvValidation] = useState([])
   const [importResult, setImportResult] = useState(null)
   const [showCsvImport, setShowCsvImport] = useState(false)
@@ -345,7 +357,6 @@ function App({ tab, onTab, onOpenShop }) {
           row,
           errors: validateCsvRow(row),
         }))
-        setCsvRows(rows)
         setCsvValidation(validation)
       },
     })
@@ -383,7 +394,7 @@ function App({ tab, onTab, onOpenShop }) {
     <div>
       <div className="admin-bar">
         <div className="admin-bar-inner">
-          <div className="logo">{APP_NAME}</div>
+          <Logo onClick={onOpenShop} />
           <button className={'tab' + (activeTab === 'catalog' ? ' active' : '')} onClick={() => setActiveTab('catalog')}>
             {t('adminCatalog')}
           </button>
@@ -606,6 +617,7 @@ function App({ tab, onTab, onOpenShop }) {
                 editingId={editingId}
                 setEditingId={setEditingId}
                 handlePriceSave={handlePriceSave}
+                onEdit={setEditProductId}
                 onImageChanged={(id, imageVersion) =>
                   setProducts((prev) => prev.map((p) => (p.id === id ? { ...p, imageVersion } : p)))
                 }
@@ -615,6 +627,15 @@ function App({ tab, onTab, onOpenShop }) {
                 <p>{t('nothingFilter')}</p>
               )}
             </>
+          )}
+
+          {editProductId && (
+            <ProductEditor
+              productId={editProductId}
+              categories={categories}
+              onClose={() => setEditProductId(null)}
+              onSaved={fetchCatalog}
+            />
           )}
         </div>
       )}

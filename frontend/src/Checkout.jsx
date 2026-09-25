@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { apiFetch, logout } from './api'
-import { APP_NAME, LangSwitch, useLang } from './i18n'
+import { LangSwitch, useLang } from './i18n'
+import Logo from './Logo'
 
 function formatMDL(value) {
   return `${value.toFixed(2)} MDL`
@@ -84,9 +85,7 @@ export default function Checkout({ session, cart, onBack, onDone, onOpenLogin })
     <div>
       <header className="header">
         <div className="header-inner">
-          <div className="logo" onClick={onBack}>
-            {APP_NAME}
-          </div>
+          <Logo onClick={onBack} />
           <div style={{ flex: 1, fontSize: '18px', fontWeight: 600 }}>{t('checkoutTitle')}</div>
           <LangSwitch />
           {session && (

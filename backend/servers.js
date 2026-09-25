@@ -52,7 +52,8 @@ app.post('/stripe/webhook', express.raw({ type: 'application/json' }), async (re
       if (event.type === 'checkout.session.completed' && session.payment_status === 'paid') {
         await pool.query("UPDATE orders SET status = 'paid' WHERE id = ? AND status = 'pending_payment'", [orderId])
       } else if (event.type === 'checkout.session.expired') {
-        await pool.query("UPDATE orders SET status = 'cancelled' WHERE id = ? AND status = 'pending_payment'", [orderId])
+        // неоплаченный заказ отменяется, товар возвращается на склад
+        await setOrderStatus(orderId, 'cancelled', 'pending_payment')
       }
     }
     res.json({ received: true })
@@ -93,6 +94,7 @@ function mapProductRow(row) {
     saleUnit: row.sale_unit,
     saleUnitFactor: Number(row.sale_unit_factor),
     vatRate: Number(row.vat_rate),
+    stock: row.stock === null || row.stock === undefined ? null : Number(row.stock), // null — остаток не ведётся
   }
 }
 
@@ -280,6 +282,9 @@ app.post('/orders', requireRole('client'), async (req, res) => {
       if (product.saleUnitPriceWithVat === null) {
         return res.status(400).json({ error: 'Produsul nu are preț: ' + product.name })
       }
+      if (product.stock !== null && qty > product.stock) {
+        return res.status(400).json({ error: 'Stoc insuficient: ' + product.name })
+      }
       lines.push({ product, qty, unitPrice: product.saleUnitPriceWithVat })
     }
 
@@ -308,6 +313,18 @@ app.post('/orders', requireRole('client'), async (req, res) => {
            VALUES (?, ?, ?, ?, ?, ?)`,
           [result.insertId, l.product.id, l.product.name, l.product.saleUnit, l.qty, l.unitPrice]
         )
+        if (l.product.stock !== null) {
+          // списываем остаток атомарно: два одновременных заказа не уведут склад в минус
+          const [upd] = await conn.query('UPDATE products SET stock = stock - ? WHERE id = ? AND stock >= ?', [
+            l.qty,
+            l.product.id,
+            l.qty,
+          ])
+          if (upd.affectedRows === 0) {
+            await conn.rollback()
+            return res.status(400).json({ error: 'Stoc insuficient: ' + l.product.name })
+          }
+        }
       }
       await conn.commit()
 
@@ -331,7 +348,7 @@ app.post('/orders', requireRole('client'), async (req, res) => {
           return res.status(201).json({ id: result.insertId, total, paymentUrl: session.url })
         } catch (err) {
           console.error('Stripe error:', err.message)
-          await pool.query("UPDATE orders SET status = 'cancelled' WHERE id = ?", [result.insertId])
+          await setOrderStatus(result.insertId, 'cancelled') // вернёт товар на склад
           return res.status(502).json({ error: 'Nu s-a putut iniția plata cu cardul' })
         }
       }
@@ -425,12 +442,46 @@ app.get('/orders', requireAdmin, async (req, res) => {
 
 const ORDER_STATUSES = ['new', 'pending_payment', 'paid', 'confirmed', 'shipped', 'delivered', 'cancelled']
 
+// Меняет статус заказа и поправляет остатки: отмена возвращает товар на склад,
+// снятие отмены снова списывает. onlyFrom — менять только если текущий статус такой.
+// Возвращает false, если заказа нет (или статус не совпал с onlyFrom).
+async function setOrderStatus(orderId, status, onlyFrom = null) {
+  const conn = await pool.getConnection()
+  try {
+    await conn.beginTransaction()
+    const [rows] = await conn.query('SELECT status FROM orders WHERE id = ? FOR UPDATE', [orderId])
+    if (rows.length === 0 || (onlyFrom && rows[0].status !== onlyFrom)) {
+      await conn.rollback()
+      return false
+    }
+    const prev = rows[0].status
+    const sign = prev !== 'cancelled' && status === 'cancelled' ? 1 : prev === 'cancelled' && status !== 'cancelled' ? -1 : 0
+    if (sign !== 0) {
+      await conn.query(
+        `UPDATE products p JOIN (SELECT product_id, SUM(qty) AS qty FROM order_items WHERE order_id = ? GROUP BY product_id) i
+           ON i.product_id = p.id
+         SET p.stock = GREATEST(p.stock + ? * i.qty, 0)
+         WHERE p.stock IS NOT NULL`,
+        [orderId, sign]
+      )
+    }
+    await conn.query('UPDATE orders SET status = ? WHERE id = ?', [status, orderId])
+    await conn.commit()
+    return true
+  } catch (err) {
+    await conn.rollback().catch(() => {})
+    throw err
+  } finally {
+    conn.release()
+  }
+}
+
 app.patch('/orders/:id/status', requireAdmin, async (req, res) => {
   try {
     const { status } = req.body
     if (!ORDER_STATUSES.includes(status)) return res.status(400).json({ error: 'Status invalid' })
-    const [result] = await pool.query('UPDATE orders SET status = ? WHERE id = ?', [status, parseInt(req.params.id)])
-    if (result.affectedRows === 0) return res.status(404).json({ error: 'Comanda nu a fost găsită' })
+    const found = await setOrderStatus(parseInt(req.params.id), status)
+    if (!found) return res.status(404).json({ error: 'Comanda nu a fost găsită' })
     res.json({ success: true })
   } catch (err) {
     console.error(err)
@@ -552,6 +603,106 @@ app.post('/catalog/products', requireAdmin, async (req, res) => {
     if (err.code === 'ER_DUP_ENTRY') {
       return res.status(400).json({ error: 'Товар с таким кодом уже существует' })
     }
+    res.status(500).json({ error: 'Eroare server' })
+  }
+})
+
+// --- Редактирование товара (админка) ---
+
+app.get('/admin/products/:id', requireAdmin, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id)
+    const [rows] = await pool.query('SELECT * FROM products WHERE id = ?', [id])
+    if (rows.length === 0) return res.status(404).json({ error: 'Produsul nu a fost găsit' })
+    const [tr] = await pool.query('SELECT lang, name, category FROM product_translations WHERE product_id = ?', [id])
+    const p = rows[0]
+    res.json({
+      id: p.id,
+      code: p.code,
+      name: p.name,
+      category: p.category,
+      baseUnit: p.base_unit,
+      saleUnit: p.sale_unit,
+      saleUnitFactor: Number(p.sale_unit_factor),
+      vatRate: Number(p.vat_rate),
+      stock: p.stock === null ? null : Number(p.stock),
+      translations: Object.fromEntries(tr.map((t) => [t.lang, { name: t.name, category: t.category }])),
+    })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Eroare server' })
+  }
+})
+
+app.put('/catalog/products/:id', requireAdmin, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id)
+    const b = req.body
+    const code = String(b.code || '').trim()
+    const name = String(b.name || '').trim()
+    const category = String(b.category || '').trim()
+    const saleUnit = String(b.saleUnit || 'bax').trim()
+    const saleUnitFactor = parseFloat(b.saleUnitFactor)
+    const vatRate = parseFloat(b.vatRate)
+    const stock = b.stock === null || b.stock === '' || b.stock === undefined ? null : Number(b.stock)
+
+    if (!code || !name || !category) return res.status(400).json({ error: 'Completați codul, denumirea și categoria' })
+    if (isNaN(saleUnitFactor) || saleUnitFactor <= 0) return res.status(400).json({ error: 'Coeficient invalid' })
+    if (isNaN(vatRate) || vatRate < 0 || vatRate > 100) return res.status(400).json({ error: 'cotă TVA invalidă' })
+    if (stock !== null && (!Number.isInteger(stock) || stock < 0)) return res.status(400).json({ error: 'Stoc invalid' })
+
+    const [before] = await pool.query('SELECT name, category FROM products WHERE id = ?', [id])
+    if (before.length === 0) return res.status(404).json({ error: 'Produsul nu a fost găsit' })
+
+    await pool.query(
+      `UPDATE products SET code = ?, name = ?, category = ?, sale_unit = ?, sale_unit_factor = ?, vat_rate = ?, stock = ?
+       WHERE id = ?`,
+      [code, name, category, saleUnit, saleUnitFactor, vatRate, stock, id]
+    )
+
+    // переводы: сохраняем то, что ввёл админ; пустые поля — переводим автоматически
+    const tr = b.translations || {}
+    const manual = ['ru', 'en'].filter((lang) => tr[lang]?.name?.trim())
+    for (const lang of manual) {
+      await pool.query(
+        `INSERT INTO product_translations (product_id, lang, name, category) VALUES (?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE name = VALUES(name), category = VALUES(category)`,
+        [id, lang, tr[lang].name.trim().slice(0, 255), (tr[lang].category || '').trim().slice(0, 100) || category]
+      )
+    }
+    const changed = before[0].name !== name || before[0].category !== category
+    if (manual.length < 2 && changed) {
+      await pool.query('DELETE FROM product_translations WHERE product_id = ? AND lang NOT IN (?)', [id, manual.length ? manual : ['-']])
+      autoTranslateProduct(id, name, category).then(async () => {
+        // автоперевод не должен перезаписать то, что админ ввёл вручную
+        for (const lang of manual) {
+          await pool.query('UPDATE product_translations SET name = ?, category = ? WHERE product_id = ? AND lang = ?', [
+            tr[lang].name.trim().slice(0, 255),
+            (tr[lang].category || '').trim().slice(0, 100) || category,
+            id,
+            lang,
+          ])
+        }
+      })
+    }
+
+    res.json({ success: true })
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Produs cu acest cod există deja' })
+    console.error(err)
+    res.status(500).json({ error: 'Eroare server' })
+  }
+})
+
+// Удаление товара: цены, переводы и фото удаляются каскадно,
+// в старых заказах остаются название и цена на момент покупки
+app.delete('/catalog/products/:id', requireAdmin, async (req, res) => {
+  try {
+    const [result] = await pool.query('DELETE FROM products WHERE id = ?', [parseInt(req.params.id)])
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'Produsul nu a fost găsit' })
+    res.json({ success: true })
+  } catch (err) {
+    console.error(err)
     res.status(500).json({ error: 'Eroare server' })
   }
 })

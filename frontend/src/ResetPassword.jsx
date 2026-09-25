@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { apiFetch, saveSession } from './api'
-import { APP_NAME, LangSwitch, useLang } from './i18n'
+import { LangSwitch, useLang } from './i18n'
+import Logo from './Logo'
 
 // Страница из письма «Восстановление пароля»: /#/reset/<token>
 export default function ResetPassword({ token, onDone, onBack }) {
@@ -43,9 +44,7 @@ export default function ResetPassword({ token, onDone, onBack }) {
     <div>
       <header className="header">
         <div className="header-inner">
-          <div className="logo" onClick={onBack}>
-            {APP_NAME}
-          </div>
+          <Logo onClick={onBack} />
           <div style={{ flex: 1 }} />
           <LangSwitch />
         </div>
