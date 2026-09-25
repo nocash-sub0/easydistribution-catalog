@@ -1,6 +1,8 @@
 const express = require('express')
 const cors = require('cors')
 const pool = require('./db')
+const jwt = require('jsonwebtoken')
+const bcrypt = require('bcryptjs')
 
 const app = express()
 const PORT = process.env.PORT || 3000
@@ -56,11 +58,78 @@ function validateProductRow(row) {
   return errors
 }
 
+// --- Аутентификация ---
+
+function readToken(req) {
+  const authHeader = req.headers.authorization
+  if (!authHeader) return null
+  try {
+    return jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET)
+  } catch {
+    return null
+  }
+}
+
+function requireRole(role) {
+  return (req, res, next) => {
+    if (!req.headers.authorization) return res.status(401).json({ error: 'Lipsește token-ul' })
+    const decoded = readToken(req)
+    if (!decoded) return res.status(401).json({ error: 'Token invalid' })
+    if (decoded.role !== role) return res.status(403).json({ error: 'Acces interzis' })
+    req.user = decoded
+    next()
+  }
+}
+
+const requireAdmin = requireRole('admin')
+
+app.post('/admin/login', (req, res) => {
+  const { username, password } = req.body
+  if (username === process.env.ADMIN_USERNAME && password === process.env.ADMIN_PASSWORD) {
+    const token = jwt.sign({ role: 'admin' }, process.env.JWT_SECRET, { expiresIn: '7d' })
+    return res.json({ token })
+  }
+  res.status(401).json({ error: 'Nume de utilizator sau parolă incorectă' })
+})
+
+// Публичный список клиентов для формы входа (только id и имя)
+app.get('/auth/clients', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT id, name FROM clients ORDER BY name')
+    res.json(rows)
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Eroare server' })
+  }
+})
+
+app.post('/client/login', async (req, res) => {
+  try {
+    const { clientId, password } = req.body
+    const [rows] = await pool.query('SELECT * FROM clients WHERE id = ?', [clientId])
+    if (rows.length === 0 || !rows[0].password_hash) {
+      return res.status(401).json({ error: 'Client negăsit' })
+    }
+    const client = rows[0]
+    const match = await bcrypt.compare(password || '', client.password_hash)
+    if (!match) return res.status(401).json({ error: 'Parolă incorectă' })
+    const token = jwt.sign({ role: 'client', clientId: client.id }, process.env.JWT_SECRET, { expiresIn: '7d' })
+    res.json({ token, clientName: client.name })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Eroare server' })
+  }
+})
+
 // --- Каталог ---
 
 app.get('/catalog', async (req, res) => {
   try {
-    const clientId = req.query.clientId || null
+    // Клиент видит только свой прайс; админ может смотреть от имени любого клиента
+    const user = readToken(req)
+    let clientId = null
+    if (user?.role === 'client') clientId = user.clientId
+    else if (user?.role === 'admin') clientId = req.query.clientId || null
 
     const [defaultLists] = await pool.query('SELECT id FROM price_lists WHERE is_default = TRUE LIMIT 1')
     const defaultListId = defaultLists[0].id
@@ -106,7 +175,7 @@ app.get('/catalog', async (req, res) => {
   }
 })
 
-app.patch('/catalog/:productId/price', async (req, res) => {
+app.patch('/catalog/:productId/price', requireAdmin, async (req, res) => {
   try {
     const productId = parseInt(req.params.productId)
     const { price } = req.body
@@ -130,7 +199,7 @@ app.patch('/catalog/:productId/price', async (req, res) => {
   }
 })
 
-app.post('/catalog/products', async (req, res) => {
+app.post('/catalog/products', requireAdmin, async (req, res) => {
   try {
     const errors = validateProductRow(req.body)
     if (errors.length > 0) return res.status(400).json({ error: errors.join(', ') })
@@ -161,7 +230,7 @@ app.post('/catalog/products', async (req, res) => {
   }
 })
 
-app.post('/catalog/products/bulk', async (req, res) => {
+app.post('/catalog/products/bulk', requireAdmin, async (req, res) => {
   try {
     const rows = req.body.rows || []
 
@@ -204,7 +273,7 @@ app.post('/catalog/products/bulk', async (req, res) => {
 
 // --- Прайс-листы ---
 
-app.get('/price-lists', async (req, res) => {
+app.get('/price-lists', requireAdmin, async (req, res) => {
   try {
     const [rows] = await pool.query(`
       SELECT pl.id, pl.name, pl.is_default AS isDefault, COUNT(ca.client_id) AS clientCount
@@ -220,7 +289,7 @@ app.get('/price-lists', async (req, res) => {
   }
 })
 
-app.post('/price-lists', async (req, res) => {
+app.post('/price-lists', requireAdmin, async (req, res) => {
   try {
     const { name } = req.body
     if (!name) return res.status(400).json({ error: 'Numele este obligatoriu' })
@@ -232,7 +301,7 @@ app.post('/price-lists', async (req, res) => {
   }
 })
 
-app.put('/price-lists/:id', async (req, res) => {
+app.put('/price-lists/:id', requireAdmin, async (req, res) => {
   try {
     const id = parseInt(req.params.id)
     const { name } = req.body
@@ -246,7 +315,7 @@ app.put('/price-lists/:id', async (req, res) => {
   }
 })
 
-app.delete('/price-lists/:id', async (req, res) => {
+app.delete('/price-lists/:id', requireAdmin, async (req, res) => {
   try {
     const id = parseInt(req.params.id)
     const [lists] = await pool.query('SELECT * FROM price_lists WHERE id = ?', [id])
@@ -268,7 +337,7 @@ app.delete('/price-lists/:id', async (req, res) => {
 
 // --- Клиенты ---
 
-app.get('/clients', async (req, res) => {
+app.get('/clients', requireAdmin, async (req, res) => {
   try {
     const [rows] = await pool.query(`
       SELECT c.id, c.name, ca.price_list_id AS priceListId
@@ -283,7 +352,7 @@ app.get('/clients', async (req, res) => {
   }
 })
 
-app.post('/price-lists/:id/assign', async (req, res) => {
+app.post('/price-lists/:id/assign', requireAdmin, async (req, res) => {
   try {
     const listId = parseInt(req.params.id)
     const { clientIds } = req.body
@@ -305,7 +374,7 @@ app.post('/price-lists/:id/assign', async (req, res) => {
 
 // --- Позиции листа + сравнение с базовым ---
 
-app.get('/price-lists/:id/items', async (req, res) => {
+app.get('/price-lists/:id/items', requireAdmin, async (req, res) => {
   try {
     const id = parseInt(req.params.id)
     const [lists] = await pool.query('SELECT * FROM price_lists WHERE id = ?', [id])
@@ -353,7 +422,7 @@ app.get('/price-lists/:id/items', async (req, res) => {
   }
 })
 
-app.post('/price-lists/:id/discount', async (req, res) => {
+app.post('/price-lists/:id/discount', requireAdmin, async (req, res) => {
   try {
     const listId = parseInt(req.params.id)
     const { category, percent, apply } = req.body

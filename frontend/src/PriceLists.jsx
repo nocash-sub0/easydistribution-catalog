@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { apiFetch } from './api'
 
 function formatMDL(value) {
   if (value === null || value === undefined) return '—'
@@ -26,20 +27,20 @@ export default function PriceLists() {
   const [discountPreview, setDiscountPreview] = useState(null)
 
   const fetchPriceLists = () => {
-    fetch(`${import.meta.env.VITE_API_URL}/price-lists`)
+    apiFetch(`/price-lists`)
       .then((res) => res.json())
       .then(setPriceLists)
   }
 
   const fetchClients = () => {
-    fetch(`${import.meta.env.VITE_API_URL}/clients`)
+    apiFetch(`/clients`)
       .then((res) => res.json())
       .then(setClients)
   }
 
   const fetchItems = (listId) => {
     setLoadingItems(true)
-    fetch(`${import.meta.env.VITE_API_URL}/price-lists/${listId}/items`)
+    apiFetch(`/price-lists/${listId}/items`)
       .then((res) => res.json())
       .then((data) => {
         setItems(data)
@@ -58,7 +59,7 @@ export default function PriceLists() {
 
   const handleCreateList = async () => {
     if (!newListName.trim()) return
-    await fetch(`${import.meta.env.VITE_API_URL}/price-lists`, {
+    await apiFetch(`/price-lists`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: newListName }),
@@ -68,7 +69,7 @@ export default function PriceLists() {
   }
 
   const handleRename = async (id) => {
-    await fetch(`${import.meta.env.VITE_API_URL}/price-lists/${id}`, {
+    await apiFetch(`/price-lists/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: renameValue }),
@@ -79,7 +80,7 @@ export default function PriceLists() {
 
   const handleDelete = async (id) => {
     if (!confirm('Удалить этот прайс-лист? Клиенты вернутся на дефолтный.')) return
-    const res = await fetch(`${import.meta.env.VITE_API_URL}/price-lists/${id}`, { method: 'DELETE' })
+    const res = await apiFetch(`/price-lists/${id}`, { method: 'DELETE' })
     const data = await res.json()
     if (!res.ok) {
       alert(data.error)
@@ -92,7 +93,7 @@ export default function PriceLists() {
 
   const handleAssignClients = async () => {
     if (!selectedListId || selectedClientIds.length === 0) return
-    await fetch(`${import.meta.env.VITE_API_URL}/price-lists/${selectedListId}/assign`, {
+    await apiFetch(`/price-lists/${selectedListId}/assign`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ clientIds: selectedClientIds }),
@@ -116,7 +117,7 @@ export default function PriceLists() {
 
   const handlePreviewDiscount = async () => {
     if (!discountCategory || !discountPercent) return
-    const res = await fetch(`${import.meta.env.VITE_API_URL}/price-lists/${selectedListId}/discount`, {
+    const res = await apiFetch(`/price-lists/${selectedListId}/discount`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -134,7 +135,7 @@ export default function PriceLists() {
   }
 
   const handleApplyDiscount = async () => {
-    const res = await fetch(`${import.meta.env.VITE_API_URL}/price-lists/${selectedListId}/discount`, {
+    const res = await apiFetch(`/price-lists/${selectedListId}/discount`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

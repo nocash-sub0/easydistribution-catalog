@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import Papa from 'papaparse'
 import PriceLists from './PriceLists'
+import { apiFetch, logout } from './api'
 
 function SkeletonRow() {
   return (
@@ -123,6 +124,7 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [clientId, setClientId] = useState('')
+  const [clientList, setClientList] = useState([])
   const [editingId, setEditingId] = useState(null)
 
   const [searchInput, setSearchInput] = useState('')
@@ -151,10 +153,10 @@ function App() {
     setLoading(true)
     setError(null)
     const url = clientId
-      ? `${import.meta.env.VITE_API_URL}/catalog?clientId=${clientId}`
-      : `${import.meta.env.VITE_API_URL}/catalog`
+      ? `/catalog?clientId=${clientId}`
+      : `/catalog`
 
-    fetch(url)
+    apiFetch(url)
       .then((res) => {
         if (!res.ok) throw new Error('Сервер вернул ошибку')
         return res.json()
@@ -174,6 +176,13 @@ function App() {
   }, [clientId])
 
   useEffect(() => {
+    apiFetch('/clients')
+      .then((res) => res.json())
+      .then(setClientList)
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchInput)
     }, 300)
@@ -182,7 +191,7 @@ function App() {
 
   const handlePriceSave = async (productId, newPrice) => {
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/catalog/${productId}/price`, {
+      const res = await apiFetch(`/catalog/${productId}/price`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ price: newPrice }),
@@ -201,7 +210,7 @@ function App() {
     setFormError(null)
 
     try {
-      const res = await fetch('${import.meta.env.VITE_API_URL}/catalog/products', {
+      const res = await apiFetch(`/catalog/products`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -282,7 +291,7 @@ function App() {
     const validRows = csvValidation.filter((v) => v.errors.length === 0).map((v) => v.row)
 
     try {
-      const res = await fetch('${import.meta.env.VITE_API_URL}/catalog/products/bulk', {
+      const res = await apiFetch(`/catalog/products/bulk`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rows: validRows }),
@@ -320,7 +329,8 @@ function App() {
           style={{ fontWeight: activeTab === 'pricelists' ? 'bold' : 'normal' }}
         >
           Списки цен
-        </button>
+        </button>{' '}
+        <button onClick={logout}>Выйти</button>
       </div>
 
       {activeTab === 'pricelists' ? (
@@ -342,8 +352,11 @@ function App() {
               Клиент:{' '}
               <select value={clientId} onChange={(e) => setClientId(e.target.value)}>
                 <option value="">Без клиента (дефолт)</option>
-                <option value="client-vip">Client VIP</option>
-                <option value="client-mic">Client Mic</option>
+                {clientList.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
               </select>
             </label>
 
