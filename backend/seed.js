@@ -51,7 +51,19 @@ const clients = [
 
 async function seed() {
   try {
+    // Защита: сид стирает ВСЕ данные (товары, цены, клиентов с регистрациями, заказы)
+    const [[{ n: existing }]] = await pool.query(
+      'SELECT (SELECT COUNT(*) FROM products) + (SELECT COUNT(*) FROM clients) AS n'
+    )
+    if (existing > 0 && !process.argv.includes('--force')) {
+      console.log(`⚠️  В базе уже есть данные (записей: ${existing}). Сид удалит их все.`)
+      console.log('Если это действительно нужно, запустите: node seed.js --force')
+      return
+    }
+
     // Очищаем в правильном порядке (сначала дочерние таблицы)
+    await pool.query('DELETE FROM order_items')
+    await pool.query('DELETE FROM orders')
     await pool.query('DELETE FROM client_assignments')
     await pool.query('DELETE FROM price_list_items')
     await pool.query('DELETE FROM price_lists')

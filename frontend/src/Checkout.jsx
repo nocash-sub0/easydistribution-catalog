@@ -117,6 +117,16 @@ export default function Checkout({ session, cart, onBack, onDone, onOpenLogin })
               {t('backToCatalog')}
             </button>
           </div>
+        ) : session.role === 'admin' ? (
+          <div className="panel" style={{ textAlign: 'center' }}>
+            <p>{t('adminCantOrder')}</p>
+            <button className="btn btn-yellow" onClick={logout}>
+              {t('logout')}
+            </button>{' '}
+            <button className="btn btn-ghost" style={{ color: 'var(--blue)', borderColor: 'var(--border)' }} onClick={onBack}>
+              {t('backToCatalog')}
+            </button>
+          </div>
         ) : (
           <>
             <button className="link-btn" style={{ width: 'auto', textAlign: 'left' }} onClick={onBack}>

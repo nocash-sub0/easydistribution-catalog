@@ -73,6 +73,7 @@ export const messages = {
     continueShopping: 'Продолжить покупки',
     orderFailed: 'Не удалось оформить заказ',
     emptyCheckout: 'В корзине нет товаров',
+    adminCantOrder: 'Вы вошли как администратор. Заказы оформляют покупатели: выйдите и войдите под клиентским аккаунтом или зарегистрируйтесь.',
 
     // админка: общее
     adminCatalog: 'Каталог',
@@ -249,6 +250,7 @@ export const messages = {
     continueShopping: 'Continuă cumpărăturile',
     orderFailed: 'Comanda nu a putut fi plasată',
     emptyCheckout: 'Coșul este gol',
+    adminCantOrder: 'Sunteți autentificat ca administrator. Comenzile sunt plasate de clienți: ieșiți și autentificați-vă cu un cont de client sau înregistrați-vă.',
 
     adminCatalog: 'Catalog',
     adminPriceLists: 'Liste de prețuri',
@@ -422,6 +424,7 @@ export const messages = {
     continueShopping: 'Continue shopping',
     orderFailed: 'Could not place the order',
     emptyCheckout: 'Your cart is empty',
+    adminCantOrder: 'You are logged in as an administrator. Orders are placed by customers: log out and sign in with a customer account or sign up.',
 
     adminCatalog: 'Catalog',
     adminPriceLists: 'Price lists',
