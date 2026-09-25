@@ -1,6 +1,33 @@
 import { useState, useEffect, useMemo } from 'react'
 import { apiFetch, logout } from './api'
 import { APP_NAME, LangSwitch, useLang } from './i18n'
+import { categoryIcon, imageUrl } from './images'
+
+// Последний загруженный каталог хранится в браузере: при следующем открытии товары видны сразу,
+// а свежие цены подгружаются в фоне (важно, пока сервер на Render «просыпается»)
+const CACHE_PREFIX = 'catalog:'
+
+function readCachedCatalog(key) {
+  try {
+    const data = JSON.parse(localStorage.getItem(CACHE_PREFIX + key))
+    return Array.isArray(data) ? data : null
+  } catch {
+    return null
+  }
+}
+
+function writeCachedCatalog(key, data) {
+  try {
+    // держим только один каталог, чтобы не переполнить хранилище браузера
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i)
+      if (k.startsWith(CACHE_PREFIX) && k !== CACHE_PREFIX + key) localStorage.removeItem(k)
+    }
+    localStorage.setItem(CACHE_PREFIX + key, JSON.stringify(data))
+  } catch {
+    // не поместилось или хранилище недоступно — просто работаем без кэша
+  }
+}
 
 function formatMDL(value) {
   if (value === null || value === undefined) return '—'
@@ -13,7 +40,13 @@ function ProductCard({ product, qty, onChangeQty }) {
   return (
     <div className="card">
       {product.priceSource === 'client' && <span className="tag-special">{t('specialPrice')}</span>}
-      <div className="card-img">{product.name.charAt(0).toUpperCase()}</div>
+      <div className="card-img">
+        {imageUrl(product) ? (
+          <img src={imageUrl(product)} alt={product.name} loading="lazy" />
+        ) : (
+          <span className="card-icon">{categoryIcon(product.categoryCode)}</span>
+        )}
+      </div>
       <div className="card-cat">
         {product.category} · {product.code}
       </div>
@@ -63,8 +96,17 @@ export default function Storefront({ session, cart, onChangeQty, onCheckout, onO
 
   const [showCart, setShowCart] = useState(false)
 
+  // цены зависят от клиента, поэтому кэш свой для каждого аккаунта и языка
+  const cacheKey = `${lang}:${session?.token || 'guest'}`
+
   const fetchCatalog = () => {
-    setLoading(true)
+    const cached = readCachedCatalog(cacheKey)
+    if (cached) {
+      setProducts(cached)
+      setLoading(false)
+    } else {
+      setLoading(true)
+    }
     setError(null)
     apiFetch(`/catalog?lang=${lang}`)
       .then((res) => {
@@ -74,9 +116,11 @@ export default function Storefront({ session, cart, onChangeQty, onCheckout, onO
       .then((data) => {
         setProducts(data)
         setLoading(false)
+        writeCachedCatalog(cacheKey, data)
       })
       .catch((err) => {
-        setError(err.message)
+        // если показан каталог из кэша, ошибку обновления не показываем — товары уже на экране
+        if (!cached) setError(err.message)
         setLoading(false)
       })
   }

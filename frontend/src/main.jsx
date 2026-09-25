@@ -1,16 +1,22 @@
-import { StrictMode, useEffect, useState } from 'react'
+import { StrictMode, Suspense, lazy, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
-import App from './App.jsx'
-import Checkout from './Checkout.jsx'
-import Login from './Login.jsx'
-import MyOrders from './MyOrders.jsx'
-import PaymentResult from './PaymentResult.jsx'
 import Storefront from './Storefront.jsx'
 import { getSession } from './api'
-import { LangProvider } from './i18n'
+import { LangProvider, useLang } from './i18n'
+import { navigate, useRoute } from './router'
+
+// Витрина грузится сразу, остальные экраны — только когда их открывают.
+// Так гость не скачивает код админки, импорта CSV и оформления заказа.
+const App = lazy(() => import('./App.jsx'))
+const Checkout = lazy(() => import('./Checkout.jsx'))
+const Login = lazy(() => import('./Login.jsx'))
+const MyOrders = lazy(() => import('./MyOrders.jsx'))
+const PaymentResult = lazy(() => import('./PaymentResult.jsx'))
+const ResetPassword = lazy(() => import('./ResetPassword.jsx'))
 
 const CART_KEY = 'cart'
+const ADMIN_TABS = ['catalog', 'pricelists', 'orders', 'clients']
 
 function loadCart() {
   try {
@@ -23,10 +29,16 @@ function loadCart() {
   }
 }
 
+function Loading() {
+  const { t } = useLang()
+  return <p style={{ padding: '40px', textAlign: 'center', color: 'var(--muted)' }}>{t('loadingShort')}</p>
+}
+
 function Root() {
   const [session, setSession] = useState(getSession)
   const [showLogin, setShowLogin] = useState(false)
-  const [view, setView] = useState(() => (new URLSearchParams(window.location.search).get('payment') ? 'payment' : 'shop'))
+  const [paymentReturn, setPaymentReturn] = useState(() => !!new URLSearchParams(window.location.search).get('payment'))
+  const path = useRoute()
   // корзина живёт здесь, чтобы переходить между витриной и страницей оплаты не теряя товары,
   // и сохраняется в браузере, чтобы переживать обновление страницы
   const [cart, setCart] = useState(loadCart)
@@ -38,6 +50,15 @@ function Root() {
       // хранилище недоступно — корзина просто не сохранится
     }
   }, [cart])
+
+  const isAdmin = session?.role === 'admin'
+  const isClient = session?.role === 'client'
+
+  // Нет прав на страницу (например, вышли из аккаунта на /#/admin) — возвращаем на витрину
+  const forbidden = (path.startsWith('/admin') && !isAdmin) || (path === '/orders' && !isClient)
+  useEffect(() => {
+    if (forbidden) navigate('/')
+  }, [forbidden])
 
   const handleLogin = (newSession) => {
     setSession(newSession)
@@ -53,50 +74,66 @@ function Root() {
     })
   }
 
-  if (view === 'payment') {
-    return (
+  const goShop = () => navigate('/')
+
+  let page
+  if (paymentReturn) {
+    page = (
       <PaymentResult
         session={session}
         onBack={() => {
           window.history.replaceState({}, '', window.location.pathname)
-          setView('shop')
+          setPaymentReturn(false)
+          goShop()
         }}
+      />
+    )
+  } else if (path.startsWith('/reset/')) {
+    page = <ResetPassword token={path.slice('/reset/'.length)} onDone={handleLogin} onBack={goShop} />
+  } else if (path.startsWith('/admin') && isAdmin) {
+    const tab = path.split('/')[2]
+    page = (
+      <App
+        tab={ADMIN_TABS.includes(tab) ? tab : 'catalog'}
+        onTab={(t) => navigate(t === 'catalog' ? '/admin' : `/admin/${t}`)}
+        onOpenShop={goShop}
+      />
+    )
+  } else if (path === '/orders' && isClient) {
+    page = <MyOrders onBack={goShop} />
+  } else if (path === '/checkout') {
+    page = (
+      <Checkout
+        key={session?.token || 'guest'}
+        session={session}
+        cart={cart}
+        onBack={goShop}
+        onDone={() => setCart({})}
+        onOpenLogin={() => setShowLogin(true)}
+      />
+    )
+  } else {
+    page = (
+      <Storefront
+        key={session?.token || 'guest'}
+        session={session}
+        cart={cart}
+        onChangeQty={changeQty}
+        onCheckout={() => navigate('/checkout')}
+        onOpenLogin={() => setShowLogin(true)}
+        onOpenAdmin={() => navigate('/admin')}
+        onOpenMyOrders={() => navigate('/orders')}
       />
     )
   }
 
-  if (session?.role === 'admin' && view === 'admin') {
-    return <App onOpenShop={() => setView('shop')} />
-  }
-
-  if (session?.role === 'client' && view === 'myorders') {
-    return <MyOrders onBack={() => setView('shop')} />
-  }
-
   return (
     <>
-      {view === 'checkout' ? (
-        <Checkout
-          key={session?.token || 'guest'}
-          session={session}
-          cart={cart}
-          onBack={() => setView('shop')}
-          onDone={() => setCart({})}
-          onOpenLogin={() => setShowLogin(true)}
-        />
-      ) : (
-        <Storefront
-          key={session?.token || 'guest'}
-          session={session}
-          cart={cart}
-          onChangeQty={changeQty}
-          onCheckout={() => setView('checkout')}
-          onOpenLogin={() => setShowLogin(true)}
-          onOpenAdmin={() => setView('admin')}
-          onOpenMyOrders={() => setView('myorders')}
-        />
-      )}
-      {showLogin && <Login onLogin={handleLogin} onClose={() => setShowLogin(false)} />}
+      <Suspense fallback={<Loading />}>{page}</Suspense>
+      {/* отдельная граница: пока грузится окно входа, страница под ним не пропадает */}
+      <Suspense fallback={null}>
+        {showLogin && <Login onLogin={handleLogin} onClose={() => setShowLogin(false)} />}
+      </Suspense>
     </>
   )
 }

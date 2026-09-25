@@ -3,7 +3,9 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import Papa from 'papaparse'
 import PriceLists from './PriceLists'
 import Orders from './Orders'
+import Clients from './Clients'
 import { apiFetch, logout } from './api'
+import { categoryIcon, deleteProductImage, imageUrl, uploadProductImage } from './images'
 import { APP_NAME, LangSwitch, useLang } from './i18n'
 
 function SkeletonRow() {
@@ -25,7 +27,61 @@ function SkeletonRow() {
   )
 }
 
-function VirtualizedTable({ products, editingId, setEditingId, handlePriceSave }) {
+// Фото товара в таблице админки: клик по миниатюре — загрузить новое фото, ✕ — удалить
+function ImageCell({ product, onChanged }) {
+  const { t } = useLang()
+  const inputRef = useRef(null)
+  const [busy, setBusy] = useState(false)
+  const src = imageUrl(product)
+
+  const handleFile = async (e) => {
+    const file = e.target.files[0]
+    e.target.value = ''
+    if (!file) return
+    setBusy(true)
+    try {
+      onChanged(product.id, await uploadProductImage(product.id, file))
+    } catch (err) {
+      alert(t('imageUploadFail') + ': ' + err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    setBusy(true)
+    try {
+      await deleteProductImage(product.id)
+      onChanged(product.id, null)
+    } catch (err) {
+      alert(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div style={{ width: '70px', display: 'flex', alignItems: 'center', gap: '2px' }}>
+      <button
+        type="button"
+        className="thumb-btn"
+        title={t('uploadPhoto')}
+        disabled={busy}
+        onClick={() => inputRef.current.click()}
+      >
+        {busy ? '…' : src ? <img src={src} alt="" /> : <span>{categoryIcon(product.categoryCode)}+</span>}
+      </button>
+      {src && !busy && (
+        <button type="button" className="thumb-del" title={t('deletePhoto')} onClick={handleDelete}>
+          ✕
+        </button>
+      )}
+      <input ref={inputRef} type="file" accept="image/*" hidden onChange={handleFile} />
+    </div>
+  )
+}
+
+function VirtualizedTable({ products, editingId, setEditingId, handlePriceSave, onImageChanged }) {
   const { t } = useLang()
   const parentRef = useRef(null)
 
@@ -39,6 +95,7 @@ function VirtualizedTable({ products, editingId, setEditingId, handlePriceSave }
   return (
     <div>
       <div style={{ display: 'flex', fontWeight: 'bold', borderBottom: '2px solid #333', padding: '8px 0' }}>
+        <div style={{ width: '70px' }}>{t('colPhoto')}</div>
         <div style={{ width: '220px' }}>{t('colName')}</div>
         <div style={{ width: '120px' }}>{t('colCategory')}</div>
         <div style={{ width: '100px' }}>{t('colPriceBuc')}</div>
@@ -79,6 +136,7 @@ function VirtualizedTable({ products, editingId, setEditingId, handlePriceSave }
                   borderBottom: '1px solid #eee',
                 }}
               >
+                <ImageCell product={product} onChanged={onImageChanged} />
                 <div style={{ width: '220px' }}>{product.name}</div>
                 <div style={{ width: '120px' }}>{product.category}</div>
                 <div style={{ width: '100px' }} onClick={() => setEditingId(product.id)}>
@@ -120,9 +178,11 @@ function VirtualizedTable({ products, editingId, setEditingId, handlePriceSave }
   )
 }
 
-function App({ onOpenShop }) {
+function App({ tab, onTab, onOpenShop }) {
   const { t } = useLang()
-  const [activeTab, setActiveTab] = useState('catalog')
+  // вкладка берётся из адреса (/#/admin/orders), поэтому «Назад» в браузере переключает вкладки
+  const activeTab = tab || 'catalog'
+  const setActiveTab = onTab
 
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
@@ -333,6 +393,9 @@ function App({ onOpenShop }) {
           <button className={'tab' + (activeTab === 'orders' ? ' active' : '')} onClick={() => setActiveTab('orders')}>
             {t('adminOrders')}
           </button>
+          <button className={'tab' + (activeTab === 'clients' ? ' active' : '')} onClick={() => setActiveTab('clients')}>
+            {t('adminClients')}
+          </button>
           <div className="spacer" />
           <LangSwitch />
           <button className="btn btn-ghost" onClick={onOpenShop}>{t('toShop')}</button>
@@ -340,7 +403,9 @@ function App({ onOpenShop }) {
         </div>
       </div>
 
-      {activeTab === 'orders' ? (
+      {activeTab === 'clients' ? (
+        <Clients />
+      ) : activeTab === 'orders' ? (
         <Orders />
       ) : activeTab === 'pricelists' ? (
         <PriceLists />
@@ -541,6 +606,9 @@ function App({ onOpenShop }) {
                 editingId={editingId}
                 setEditingId={setEditingId}
                 handlePriceSave={handlePriceSave}
+                onImageChanged={(id, imageVersion) =>
+                  setProducts((prev) => prev.map((p) => (p.id === id ? { ...p, imageVersion } : p)))
+                }
               />
 
               {filteredProducts.length === 0 && (

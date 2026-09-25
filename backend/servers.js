@@ -4,7 +4,20 @@ const pool = require('./db')
 const jwt = require('jsonwebtoken')
 const bcrypt = require('bcryptjs')
 const crypto = require('crypto')
+const compression = require('compression')
+const nodemailer = require('nodemailer')
 const { autoTranslateProduct } = require('./translate')
+
+// Почта для восстановления пароля (любой SMTP, например бесплатный Gmail с паролем приложения)
+const mailer =
+  process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS
+    ? nodemailer.createTransport({
+        host: process.env.SMTP_HOST,
+        port: Number(process.env.SMTP_PORT) || 465,
+        secure: (Number(process.env.SMTP_PORT) || 465) === 465,
+        auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+      })
+    : null
 
 const app = express()
 // Render стоит за прокси: берём реальный IP клиента из X-Forwarded-For
@@ -12,6 +25,8 @@ app.set('trust proxy', 1)
 const PORT = process.env.PORT || 3000
 
 app.use(cors())
+// gzip: каталог из 800 товаров сжимается примерно с 210 КБ до ~25 КБ
+app.use(compression())
 
 // --- Stripe (оплата картой) ---
 
@@ -72,6 +87,8 @@ function mapProductRow(row) {
     code: row.code,
     name: row.tr_name || row.name,
     category: row.tr_category || row.category,
+    categoryCode: row.category, // исходная категория — для иконок и фильтров, не зависит от языка
+    imageVersion: row.image_version ? Number(row.image_version) : null,
     baseUnit: row.base_unit,
     saleUnit: row.sale_unit,
     saleUnitFactor: Number(row.sale_unit_factor),
@@ -334,7 +351,7 @@ app.post('/orders', requireRole('client'), async (req, res) => {
 
 // Что доступно на фронтенде (например, включена ли оплата картой)
 app.get('/config', (req, res) => {
-  res.json({ cardPayments: !!stripe })
+  res.json({ cardPayments: !!stripe, passwordReset: !!mailer })
 })
 
 // Статус собственного заказа; для неоплаченного картой заказа уточняем у Stripe
@@ -438,9 +455,11 @@ async function buildCatalog(clientId, lang) {
   }
 
   const [rows] = await pool.query(
-    `SELECT p.*, tr.name AS tr_name, tr.category AS tr_category, active.price AS active_price, def.price AS default_price
+    `SELECT p.*, tr.name AS tr_name, tr.category AS tr_category, active.price AS active_price, def.price AS default_price,
+            UNIX_TIMESTAMP(img.updated_at) AS image_version
      FROM products p
      LEFT JOIN product_translations tr ON tr.product_id = p.id AND tr.lang = ?
+     LEFT JOIN product_images img ON img.product_id = p.id
      LEFT JOIN price_list_items active ON active.product_id = p.id AND active.price_list_id = ?
      LEFT JOIN price_list_items def ON def.product_id = p.id AND def.price_list_id = ?
      ORDER BY p.id`,
@@ -781,10 +800,203 @@ app.post('/price-lists/:id/discount', requireAdmin, async (req, res) => {
   }
 })
 
+// --- Фото товаров (хранятся в базе, чтобы не зависеть от внешних сервисов) ---
+
+const IMAGE_TYPES = ['image/webp', 'image/jpeg', 'image/png']
+const MAX_IMAGE_BYTES = 1024 * 1024
+
+app.get('/products/:id/image', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT mime, data FROM product_images WHERE product_id = ?', [parseInt(req.params.id)])
+    if (rows.length === 0) return res.status(404).end()
+    // URL содержит ?v=<время изменения>, поэтому картинку можно кэшировать надолго
+    res.set('Cache-Control', 'public, max-age=31536000, immutable')
+    res.type(rows[0].mime).send(rows[0].data)
+  } catch (err) {
+    console.error(err)
+    res.status(500).end()
+  }
+})
+
+app.put('/products/:id/image', requireAdmin, async (req, res) => {
+  try {
+    const { mime, data } = req.body
+    if (!IMAGE_TYPES.includes(mime) || typeof data !== 'string') return res.status(400).json({ error: 'Imagine invalidă' })
+    const buffer = Buffer.from(data, 'base64')
+    if (buffer.length === 0 || buffer.length > MAX_IMAGE_BYTES) return res.status(400).json({ error: 'Imaginea este prea mare' })
+
+    const productId = parseInt(req.params.id)
+    const [products] = await pool.query('SELECT id FROM products WHERE id = ?', [productId])
+    if (products.length === 0) return res.status(404).json({ error: 'Produsul nu a fost găsit' })
+
+    await pool.query(
+      `INSERT INTO product_images (product_id, mime, data) VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE mime = VALUES(mime), data = VALUES(data), updated_at = CURRENT_TIMESTAMP`,
+      [productId, mime, buffer]
+    )
+    const [[row]] = await pool.query('SELECT UNIX_TIMESTAMP(updated_at) AS v FROM product_images WHERE product_id = ?', [productId])
+    res.json({ imageVersion: Number(row.v) })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Eroare server' })
+  }
+})
+
+app.delete('/products/:id/image', requireAdmin, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM product_images WHERE product_id = ?', [parseInt(req.params.id)])
+    res.json({ success: true })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Eroare server' })
+  }
+})
+
+// --- Клиенты (админка) ---
+
+function makePassword() {
+  const alphabet = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789'
+  return Array.from(crypto.randomBytes(10), (b) => alphabet[b % alphabet.length]).join('')
+}
+
+app.get('/admin/clients', requireAdmin, async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT c.id, c.name, c.login, c.email, (c.password_hash IS NOT NULL) AS hasPassword,
+             ca.price_list_id AS priceListId,
+             COUNT(o.id) AS orderCount, COALESCE(SUM(CASE WHEN o.status <> 'cancelled' THEN o.total END), 0) AS orderTotal
+      FROM clients c
+      LEFT JOIN client_assignments ca ON ca.client_id = c.id
+      LEFT JOIN orders o ON o.client_id = c.id
+      GROUP BY c.id, c.name, c.login, c.email, c.password_hash, ca.price_list_id
+      ORDER BY c.name
+    `)
+    res.json(
+      rows.map((r) => ({ ...r, hasPassword: !!r.hasPassword, orderCount: Number(r.orderCount), orderTotal: Number(r.orderTotal) }))
+    )
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Eroare server' })
+  }
+})
+
+// Новый пароль клиенту: показывается админу один раз, в базе хранится только хэш
+app.post('/admin/clients/:id/reset-password', requireAdmin, async (req, res) => {
+  try {
+    const password = makePassword()
+    const hash = await bcrypt.hash(password, 10)
+    const [result] = await pool.query('UPDATE clients SET password_hash = ? WHERE id = ?', [hash, req.params.id])
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'Client negăsit' })
+    await pool.query('DELETE FROM password_resets WHERE client_id = ?', [req.params.id])
+    res.json({ password })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Eroare server' })
+  }
+})
+
+app.delete('/admin/clients/:id', requireAdmin, async (req, res) => {
+  try {
+    const [[{ n }]] = await pool.query('SELECT COUNT(*) AS n FROM orders WHERE client_id = ?', [req.params.id])
+    // заказы — история продаж, поэтому клиента с заказами не удаляем
+    if (n > 0) return res.status(400).json({ error: 'Clientul are comenzi și nu poate fi șters' })
+    const [result] = await pool.query('DELETE FROM clients WHERE id = ?', [req.params.id])
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'Client negăsit' })
+    res.json({ success: true })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Eroare server' })
+  }
+})
+
+// --- Восстановление пароля по почте ---
+
+const RESET_MAIL = {
+  ru: {
+    subject: 'Восстановление пароля — Catalog',
+    text: (link) => `Чтобы задать новый пароль, откройте ссылку (действует 1 час):\n${link}\n\nЕсли вы не запрашивали восстановление, просто проигнорируйте это письмо.`,
+  },
+  ro: {
+    subject: 'Resetarea parolei — Catalog',
+    text: (link) => `Pentru a seta o parolă nouă, deschideți linkul (valabil 1 oră):\n${link}\n\nDacă nu ați solicitat resetarea, ignorați acest mesaj.`,
+  },
+  en: {
+    subject: 'Password reset — Catalog',
+    text: (link) => `To set a new password, open this link (valid for 1 hour):\n${link}\n\nIf you did not request a reset, just ignore this email.`,
+  },
+}
+
+const hashToken = (token) => crypto.createHash('sha256').update(token).digest('hex')
+const forgotLimiter = rateLimit({ max: 5, windowMs: 60 * 60 * 1000 })
+
+app.post('/password/forgot', forgotLimiter, async (req, res) => {
+  try {
+    if (!mailer) return res.status(501).json({ error: 'Resetarea parolei nu este configurată' })
+    const email = String(req.body.email || '').trim().toLowerCase()
+    const mail = RESET_MAIL[req.body.lang] || RESET_MAIL.ro
+
+    const [rows] = await pool.query('SELECT id FROM clients WHERE email = ? OR login = ? LIMIT 1', [email, email])
+    // Ответ всегда одинаковый, чтобы по нему нельзя было узнать, зарегистрирован ли email
+    if (rows.length > 0 && email) {
+      const token = crypto.randomBytes(32).toString('hex')
+      await pool.query('DELETE FROM password_resets WHERE client_id = ? OR expires_at < NOW()', [rows[0].id])
+      await pool.query('INSERT INTO password_resets (token_hash, client_id, expires_at) VALUES (?, ?, NOW() + INTERVAL 1 HOUR)', [
+        hashToken(token),
+        rows[0].id,
+      ])
+      const link = `${FRONTEND_URL}/#/reset/${token}`
+      await mailer.sendMail({
+        from: process.env.MAIL_FROM || process.env.SMTP_USER,
+        to: email,
+        subject: mail.subject,
+        text: mail.text(link),
+      })
+    }
+    res.json({ success: true })
+  } catch (err) {
+    console.error('Password reset mail error:', err.message)
+    res.status(500).json({ error: 'Eroare server' })
+  }
+})
+
+app.post('/password/reset', loginLimiter, async (req, res) => {
+  try {
+    const password = String(req.body.password || '')
+    if (password.length < 8) return res.status(400).json({ error: 'Parola trebuie să aibă minim 8 caractere' })
+
+    const [rows] = await pool.query(
+      `SELECT r.client_id, c.name FROM password_resets r JOIN clients c ON c.id = r.client_id
+       WHERE r.token_hash = ? AND r.expires_at > NOW()`,
+      [hashToken(String(req.body.token || ''))]
+    )
+    if (rows.length === 0) return res.status(400).json({ error: 'Linkul a expirat sau este invalid' })
+
+    const hash = await bcrypt.hash(password, 10)
+    await pool.query('UPDATE clients SET password_hash = ? WHERE id = ?', [hash, rows[0].client_id])
+    await pool.query('DELETE FROM password_resets WHERE client_id = ?', [rows[0].client_id])
+    // сразу входим, чтобы не заставлять вводить новый пароль ещё раз
+    res.json(issueClientToken({ id: rows[0].client_id, name: rows[0].name }))
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Eroare server' })
+  }
+})
+
 if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`)
   })
+
+  // Бесплатный Render усыпляет сервер после 15 минут без запросов, и первый вход длится ~минуту.
+  // Сервер сам себя пингует каждые 10 минут (RENDER_EXTERNAL_URL Render задаёт автоматически).
+  // Отключить: KEEP_ALIVE=off
+  const selfUrl = process.env.KEEP_ALIVE_URL || process.env.RENDER_EXTERNAL_URL
+  if (selfUrl && process.env.KEEP_ALIVE !== 'off') {
+    setInterval(() => {
+      fetch(selfUrl.replace(/\/+$/, '') + '/config').catch(() => {})
+    }, 10 * 60 * 1000)
+    console.log('Keep-alive enabled for', selfUrl)
+  }
 }
 
 module.exports = app

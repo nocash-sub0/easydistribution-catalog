@@ -47,6 +47,13 @@ const SERVER_ERRORS = {
   'Lista nu a fost găsită': 'errListNotFound',
   'Prea multe încercări. Încercați mai târziu': 'errRateLimit',
   'Status invalid': 'errStatus',
+  'Imagine invalidă': 'errImage',
+  'Imaginea este prea mare': 'errImageBig',
+  'Produsul nu a fost găsit': 'errProductNotFound',
+  'Client negăsit': 'errClientNotFound',
+  'Clientul are comenzi și nu poate fi șters': 'errClientHasOrders',
+  'Resetarea parolei nu este configurată': 'errResetOff',
+  'Linkul a expirat sau este invalid': 'errResetLink',
 }
 
 // Единицы измерения товаров: переводим только известные, остальные показываем как есть

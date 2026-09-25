@@ -41,9 +41,77 @@ function GoogleButton({ onCredential }) {
   return <div ref={ref} style={{ display: 'flex', justifyContent: 'center', minHeight: '44px' }} />
 }
 
+// «Забыли пароль?»: письмо со ссылкой на /#/reset/<token>
+function ForgotPassword({ onBack, onClose }) {
+  const { t, tr, lang } = useLang()
+  const [email, setEmail] = useState('')
+  const [sent, setSent] = useState(false)
+  const [error, setError] = useState(null)
+  const [busy, setBusy] = useState(false)
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError(null)
+    setBusy(true)
+    try {
+      const res = await apiFetch('/password/forgot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, lang }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!data) throw new Error(t('serverDown'))
+      if (!res.ok) throw new Error(tr(data.error))
+      setSent(true)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <h2>{t('forgotTitle')}</h2>
+        </div>
+        <form onSubmit={handleSubmit}>
+          {sent ? (
+            <p>{t('forgotSent')}</p>
+          ) : (
+            <>
+              <p style={{ marginTop: 0, color: 'var(--muted)' }}>{t('forgotHint')}</p>
+              <label className="field">
+                {t('emailField')}
+                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" autoFocus required />
+              </label>
+              {error && <p className="form-error">{error}</p>}
+              <button type="submit" disabled={busy} className="btn btn-yellow">
+                {busy ? t('placing') : t('sendLink')}
+              </button>
+            </>
+          )}
+          <button type="button" className="link-btn" onClick={onBack}>
+            {t('backToLogin')}
+          </button>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 export default function Login({ onLogin, onClose }) {
   const { t, tr } = useLang()
   const [mode, setMode] = useState('login')
+  const [resetEnabled, setResetEnabled] = useState(false)
+
+  useEffect(() => {
+    apiFetch('/config')
+      .then((res) => res.json())
+      .then((cfg) => setResetEnabled(!!cfg.passwordReset))
+      .catch(() => {})
+  }, [])
   const [name, setName] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -83,6 +151,8 @@ export default function Login({ onLogin, onClose }) {
       submitAuth('/login', { username, password }, t('loginFailed'))
     }
   }
+
+  if (mode === 'forgot') return <ForgotPassword onBack={() => setMode('login')} onClose={onClose} />
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -127,6 +197,12 @@ export default function Login({ onLogin, onClose }) {
           <button type="submit" disabled={busy} className="btn btn-yellow">
             {isRegister ? (busy ? t('registering') : t('createAccount')) : busy ? t('signingIn') : t('login')}
           </button>
+
+          {!isRegister && resetEnabled && (
+            <button type="button" className="link-btn" onClick={() => setMode('forgot')}>
+              {t('forgotPassword')}
+            </button>
+          )}
 
           {GOOGLE_CLIENT_ID && (
             <>
