@@ -255,6 +255,14 @@ export const messages = {
     errFieldsRequired: 'Заполните код, название и категорию',
     errFactorInvalid: 'Некорректный коэффициент',
     errStockInvalid: 'Некорректный остаток',
+    description: 'Описание',
+    similarProducts: 'Похожие товары',
+    productNotFound: 'Товар не найден',
+    pricePerUnit: 'Цена за {unit} с TVA',
+    priceNoVat: 'Цена за {unit} без TVA',
+    packSize: 'В упаковке',
+    availability: 'Наличие',
+    inStock: 'В наличии',
   },
 
   ro: {
@@ -505,6 +513,14 @@ export const messages = {
     errFieldsRequired: 'Completați codul, denumirea și categoria',
     errFactorInvalid: 'Coeficient invalid',
     errStockInvalid: 'Stoc invalid',
+    description: 'Descriere',
+    similarProducts: 'Produse similare',
+    productNotFound: 'Produsul nu a fost găsit',
+    pricePerUnit: 'Preț per {unit} cu TVA',
+    priceNoVat: 'Preț per {unit} fără TVA',
+    packSize: 'În ambalaj',
+    availability: 'Disponibilitate',
+    inStock: 'În stoc',
   },
 
   en: {
@@ -755,5 +771,13 @@ export const messages = {
     errFieldsRequired: 'Fill in the code, name and category',
     errFactorInvalid: 'Invalid factor',
     errStockInvalid: 'Invalid stock',
+    description: 'Description',
+    similarProducts: 'Similar products',
+    productNotFound: 'Product not found',
+    pricePerUnit: 'Price per {unit} incl. VAT',
+    priceNoVat: 'Price per {unit} excl. VAT',
+    packSize: 'Pack size',
+    availability: 'Availability',
+    inStock: 'In stock',
   },
 }

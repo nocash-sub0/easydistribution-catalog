@@ -245,4 +245,57 @@ async function autoTranslateProduct(productId, name, category) {
   }
 }
 
-module.exports = { autoTranslateProduct, translateName, TARGET_LANGS }
+// Описание переводим по предложениям: бесплатный MyMemory принимает до ~500 символов за запрос
+async function translateLongText(text, lang) {
+  const chunks = []
+  let current = ''
+  for (const sentence of text.match(/[^.!?\n]+[.!?]*\s*|\n/g) || [text]) {
+    if ((current + sentence).length > 450 && current) {
+      chunks.push(current)
+      current = ''
+    }
+    current += sentence
+  }
+  if (current) chunks.push(current)
+
+  const out = []
+  for (const chunk of chunks) {
+    if (!chunk.trim()) {
+      out.push(chunk)
+      continue
+    }
+    const translated = await myMemory(chunk.trim(), lang)
+    if (!translated) return null // лучше без перевода, чем наполовину переведённое описание
+    out.push(translated + (/\s$/.test(chunk) ? chunk.match(/\s*$/)[0] : ''))
+  }
+  return out.join('').trim()
+}
+
+// Переводит описание на языки из `langs` (те, что админ не заполнил вручную)
+async function autoTranslateDescription(productId, description, langs = TARGET_LANGS) {
+  for (const lang of langs) {
+    try {
+      const translated = description ? await translateLongText(description, lang) : null
+      if (description && !translated) continue
+      const [res] = await pool.query('UPDATE product_translations SET description = ? WHERE product_id = ? AND lang = ?', [
+        translated,
+        productId,
+        lang,
+      ])
+      if (res.affectedRows === 0 && translated) {
+        // перевода названия ещё нет — создаём строку с оригинальным названием, его переведут позже
+        const [[p]] = await pool.query('SELECT name, category FROM products WHERE id = ?', [productId])
+        if (p) {
+          await pool.query(
+            'INSERT IGNORE INTO product_translations (product_id, lang, name, category, description) VALUES (?, ?, ?, ?, ?)',
+            [productId, lang, p.name, p.category, translated]
+          )
+        }
+      }
+    } catch (err) {
+      console.error('Description translate failed:', err.message)
+    }
+  }
+}
+
+module.exports = { autoTranslateProduct, autoTranslateDescription, translateName, TARGET_LANGS }

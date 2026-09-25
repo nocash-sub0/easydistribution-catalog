@@ -18,6 +18,8 @@ export default function ProductEditor({ productId, categories, onClose, onSaved 
           ...p,
           stock: p.stock === null ? '' : String(p.stock),
           ruName: p.translations.ru?.name || '',
+          ruDescription: p.translations.ru?.description || '',
+          enDescription: p.translations.en?.description || '',
           ruCategory: p.translations.ru?.category || '',
           enName: p.translations.en?.name || '',
           enCategory: p.translations.en?.category || '',
@@ -59,9 +61,10 @@ export default function ProductEditor({ productId, categories, onClose, onSaved 
       saleUnitFactor: form.saleUnitFactor,
       vatRate: form.vatRate,
       stock: form.stock === '' ? null : Number(form.stock),
+      description: form.description,
       translations: {
-        ru: { name: form.ruName, category: form.ruCategory },
-        en: { name: form.enName, category: form.enCategory },
+        ru: { name: form.ruName, category: form.ruCategory, description: form.ruDescription },
+        en: { name: form.enName, category: form.enCategory, description: form.enDescription },
       },
     })
   }
@@ -111,6 +114,10 @@ export default function ProductEditor({ productId, categories, onClose, onSaved 
                 {t('fVat')}
                 <input type="number" step="0.01" min="0" max="100" value={form.vatRate} onChange={set('vatRate')} required />
               </label>
+              <label className="field span-2">
+                {t('description')} (RO)
+                <textarea rows={3} value={form.description} onChange={set('description')} />
+              </label>
               <label className="field">
                 {t('fStock')}
                 <input type="number" min="0" step="1" value={form.stock} onChange={set('stock')} placeholder={t('stockUnlimited')} />
@@ -137,6 +144,14 @@ export default function ProductEditor({ productId, categories, onClose, onSaved 
               <label className="field">
                 {t('fCategory')} (EN)
                 <input value={form.enCategory} onChange={set('enCategory')} placeholder={t('autoTranslate')} />
+              </label>
+              <label className="field span-2">
+                {t('description')} (RU)
+                <textarea rows={3} value={form.ruDescription} onChange={set('ruDescription')} placeholder={t('autoTranslate')} />
+              </label>
+              <label className="field span-2">
+                {t('description')} (EN)
+                <textarea rows={3} value={form.enDescription} onChange={set('enDescription')} placeholder={t('autoTranslate')} />
               </label>
             </div>
 

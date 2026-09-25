@@ -6,7 +6,7 @@ const bcrypt = require('bcryptjs')
 const crypto = require('crypto')
 const compression = require('compression')
 const nodemailer = require('nodemailer')
-const { autoTranslateProduct } = require('./translate')
+const { autoTranslateProduct, autoTranslateDescription } = require('./translate')
 
 // Почта для восстановления пароля (любой SMTP, например бесплатный Gmail с паролем приложения)
 const mailer =
@@ -142,7 +142,9 @@ function requireRole(role) {
 const requireAdmin = requireRole('admin')
 
 // Защита от подбора пароля: не больше `max` запросов с одного IP за окно `windowMs`
-function rateLimit({ max, windowMs }) {
+function rateLimit({ max: baseMax, windowMs }) {
+  // RATE_LIMIT_SCALE увеличивает лимиты (для автотестов, которые шлют много запросов с одного IP)
+  const max = baseMax * (Number(process.env.RATE_LIMIT_SCALE) || 1)
   const hits = new Map()
   setInterval(() => {
     const now = Date.now()
@@ -260,6 +262,107 @@ app.post('/auth/google', loginLimiter, async (req, res) => {
 
 const PAYMENT_METHODS = ['cash', 'invoice', 'card']
 
+// --- Письма о новом заказе: админу (ADMIN_EMAIL, по умолчанию адрес SMTP) и клиенту ---
+
+const ORDER_MAIL = {
+  ru: {
+    adminSubject: (id, total) => `Новый заказ №${id} на ${total} MDL`,
+    clientSubject: (id) => `Ваш заказ №${id} принят — Catalog`,
+    clientIntro: 'Спасибо за заказ! Мы свяжемся с вами для подтверждения.',
+    order: 'Заказ',
+    customer: 'Клиент',
+    contact: 'Контакт',
+    address: 'Адрес',
+    comment: 'Комментарий',
+    payment: 'Оплата',
+    total: 'Итого с TVA',
+    pay: { cash: 'наличными при получении', invoice: 'по счёту', card: 'картой онлайн (ожидает оплаты)' },
+  },
+  ro: {
+    adminSubject: (id, total) => `Comandă nouă nr. ${id} de ${total} MDL`,
+    clientSubject: (id) => `Comanda dvs. nr. ${id} a fost primită — Catalog`,
+    clientIntro: 'Vă mulțumim pentru comandă! Vă vom contacta pentru confirmare.',
+    order: 'Comanda',
+    customer: 'Client',
+    contact: 'Contact',
+    address: 'Adresa',
+    comment: 'Comentariu',
+    payment: 'Plata',
+    total: 'Total cu TVA',
+    pay: { cash: 'numerar la livrare', invoice: 'pe factură', card: 'cu cardul online (așteaptă plata)' },
+  },
+  en: {
+    adminSubject: (id, total) => `New order #${id} for ${total} MDL`,
+    clientSubject: (id) => `Your order #${id} has been received — Catalog`,
+    clientIntro: 'Thank you for your order! We will contact you to confirm it.',
+    order: 'Order',
+    customer: 'Customer',
+    contact: 'Contact',
+    address: 'Address',
+    comment: 'Comment',
+    payment: 'Payment',
+    total: 'Total incl. VAT',
+    pay: { cash: 'cash on delivery', invoice: 'by invoice', card: 'card online (awaiting payment)' },
+  },
+}
+
+function orderText(order, items, m, intro) {
+  const lines = items.map((i) => `  • ${i.product_name} — ${i.qty} ${i.sale_unit} × ${Number(i.unit_price).toFixed(2)} MDL`)
+  return [
+    intro,
+    intro ? '' : null,
+    `${m.order} #${order.id} · ${new Date(order.created_at).toLocaleString('ro-MD')}`,
+    `${m.customer}: ${order.client_name}`,
+    `${m.contact}: ${order.contact_name}, ${order.phone}`,
+    `${m.address}: ${order.address}`,
+    order.comment ? `${m.comment}: ${order.comment}` : null,
+    `${m.payment}: ${m.pay[order.payment_method] || order.payment_method}`,
+    '',
+    ...lines,
+    '',
+    `${m.total}: ${Number(order.total).toFixed(2)} MDL`,
+  ]
+    .filter((l) => l !== null)
+    .join('\n')
+}
+
+// Отправка в фоне: ошибка почты не должна ломать оформление заказа
+async function notifyNewOrder(orderId, lang) {
+  if (!mailer) return
+  try {
+    const [[order]] = await pool.query(
+      `SELECT o.*, c.name AS client_name, c.email AS client_email
+       FROM orders o JOIN clients c ON c.id = o.client_id WHERE o.id = ?`,
+      [orderId]
+    )
+    if (!order) return
+    const [items] = await pool.query('SELECT product_name, sale_unit, qty, unit_price FROM order_items WHERE order_id = ?', [orderId])
+    const from = process.env.MAIL_FROM || process.env.SMTP_USER
+    const total = Number(order.total).toFixed(2)
+
+    const admin = ORDER_MAIL[process.env.ADMIN_LANG] || ORDER_MAIL.ru
+    const adminTo = process.env.ADMIN_EMAIL || process.env.SMTP_USER
+    await mailer.sendMail({
+      from,
+      to: adminTo,
+      subject: admin.adminSubject(order.id, total),
+      text: orderText(order, items, admin, null) + `\n\n${FRONTEND_URL}/#/admin/orders`,
+    })
+
+    if (order.client_email) {
+      const m = ORDER_MAIL[lang] || ORDER_MAIL.ro
+      await mailer.sendMail({
+        from,
+        to: order.client_email,
+        subject: m.clientSubject(order.id),
+        text: orderText(order, items, m, m.clientIntro) + `\n\n${FRONTEND_URL}/#/orders`,
+      })
+    }
+  } catch (err) {
+    console.error('Order mail error:', err.message)
+  }
+}
+
 app.post('/orders', requireRole('client'), async (req, res) => {
   try {
     const { items, contactName, phone, address, comment, paymentMethod } = req.body
@@ -327,6 +430,7 @@ app.post('/orders', requireRole('client'), async (req, res) => {
         }
       }
       await conn.commit()
+      notifyNewOrder(result.insertId, req.body.lang)
 
       if (paymentMethod === 'card') {
         try {
@@ -536,6 +640,25 @@ async function buildCatalog(clientId, lang) {
   return catalog
 }
 
+// Описание для страницы товара (в общий каталог не входит, чтобы не утяжелять его)
+app.get('/products/:id/description', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id)
+    const lang = ['ru', 'en'].includes(req.query.lang) ? req.query.lang : null
+    const [rows] = await pool.query(
+      `SELECT p.description, tr.description AS tr_description
+       FROM products p LEFT JOIN product_translations tr ON tr.product_id = p.id AND tr.lang = ?
+       WHERE p.id = ?`,
+      [lang, id]
+    )
+    if (rows.length === 0) return res.status(404).json({ error: 'Produsul nu a fost găsit' })
+    res.json({ description: rows[0].tr_description || rows[0].description || '' })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Eroare server' })
+  }
+})
+
 app.get('/catalog', async (req, res) => {
   try {
     // Клиент видит только свой прайс; админ может смотреть от имени любого клиента
@@ -614,19 +737,22 @@ app.get('/admin/products/:id', requireAdmin, async (req, res) => {
     const id = parseInt(req.params.id)
     const [rows] = await pool.query('SELECT * FROM products WHERE id = ?', [id])
     if (rows.length === 0) return res.status(404).json({ error: 'Produsul nu a fost găsit' })
-    const [tr] = await pool.query('SELECT lang, name, category FROM product_translations WHERE product_id = ?', [id])
+    const [tr] = await pool.query('SELECT lang, name, category, description FROM product_translations WHERE product_id = ?', [id])
     const p = rows[0]
     res.json({
       id: p.id,
       code: p.code,
       name: p.name,
       category: p.category,
+      description: p.description || '',
       baseUnit: p.base_unit,
       saleUnit: p.sale_unit,
       saleUnitFactor: Number(p.sale_unit_factor),
       vatRate: Number(p.vat_rate),
       stock: p.stock === null ? null : Number(p.stock),
-      translations: Object.fromEntries(tr.map((t) => [t.lang, { name: t.name, category: t.category }])),
+      translations: Object.fromEntries(
+        tr.map((t) => [t.lang, { name: t.name, category: t.category, description: t.description || '' }])
+      ),
     })
   } catch (err) {
     console.error(err)
@@ -645,46 +771,64 @@ app.put('/catalog/products/:id', requireAdmin, async (req, res) => {
     const saleUnitFactor = parseFloat(b.saleUnitFactor)
     const vatRate = parseFloat(b.vatRate)
     const stock = b.stock === null || b.stock === '' || b.stock === undefined ? null : Number(b.stock)
+    const description = String(b.description || '').trim().slice(0, 5000) || null
 
     if (!code || !name || !category) return res.status(400).json({ error: 'Completați codul, denumirea și categoria' })
     if (isNaN(saleUnitFactor) || saleUnitFactor <= 0) return res.status(400).json({ error: 'Coeficient invalid' })
     if (isNaN(vatRate) || vatRate < 0 || vatRate > 100) return res.status(400).json({ error: 'cotă TVA invalidă' })
     if (stock !== null && (!Number.isInteger(stock) || stock < 0)) return res.status(400).json({ error: 'Stoc invalid' })
 
-    const [before] = await pool.query('SELECT name, category FROM products WHERE id = ?', [id])
+    const [before] = await pool.query('SELECT name, category, description FROM products WHERE id = ?', [id])
     if (before.length === 0) return res.status(404).json({ error: 'Produsul nu a fost găsit' })
 
     await pool.query(
-      `UPDATE products SET code = ?, name = ?, category = ?, sale_unit = ?, sale_unit_factor = ?, vat_rate = ?, stock = ?
+      `UPDATE products SET code = ?, name = ?, category = ?, sale_unit = ?, sale_unit_factor = ?, vat_rate = ?, stock = ?,
+              description = ?
        WHERE id = ?`,
-      [code, name, category, saleUnit, saleUnitFactor, vatRate, stock, id]
+      [code, name, category, saleUnit, saleUnitFactor, vatRate, stock, description, id]
     )
 
-    // переводы: сохраняем то, что ввёл админ; пустые поля — переводим автоматически
+    // Переводы: сохраняем то, что ввёл админ; пустые поля переводим автоматически (в фоне)
     const tr = b.translations || {}
-    const manual = ['ru', 'en'].filter((lang) => tr[lang]?.name?.trim())
-    for (const lang of manual) {
+    const LANGS = ['ru', 'en']
+    const manualNames = LANGS.filter((lang) => tr[lang]?.name?.trim())
+    const manualDescs = LANGS.filter((lang) => tr[lang]?.description?.trim())
+    const nameChanged = before[0].name !== name || before[0].category !== category
+    const retranslateNames = manualNames.length < LANGS.length && nameChanged
+
+    if (retranslateNames) {
+      await pool.query('DELETE FROM product_translations WHERE product_id = ? AND lang NOT IN (?)', [
+        id,
+        manualNames.length ? manualNames : ['-'],
+      ])
+    }
+    const saveManualNames = async () => {
+      for (const lang of manualNames) {
+        await pool.query(
+          `INSERT INTO product_translations (product_id, lang, name, category) VALUES (?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE name = VALUES(name), category = VALUES(category)`,
+          [id, lang, tr[lang].name.trim().slice(0, 255), (tr[lang].category || '').trim().slice(0, 100) || category]
+        )
+      }
+    }
+    await saveManualNames()
+    for (const lang of manualDescs) {
       await pool.query(
-        `INSERT INTO product_translations (product_id, lang, name, category) VALUES (?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE name = VALUES(name), category = VALUES(category)`,
-        [id, lang, tr[lang].name.trim().slice(0, 255), (tr[lang].category || '').trim().slice(0, 100) || category]
+        `INSERT INTO product_translations (product_id, lang, name, category, description) VALUES (?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE description = VALUES(description)`,
+        [id, lang, name, category, tr[lang].description.trim().slice(0, 5000)]
       )
     }
-    const changed = before[0].name !== name || before[0].category !== category
-    if (manual.length < 2 && changed) {
-      await pool.query('DELETE FROM product_translations WHERE product_id = ? AND lang NOT IN (?)', [id, manual.length ? manual : ['-']])
-      autoTranslateProduct(id, name, category).then(async () => {
-        // автоперевод не должен перезаписать то, что админ ввёл вручную
-        for (const lang of manual) {
-          await pool.query('UPDATE product_translations SET name = ?, category = ? WHERE product_id = ? AND lang = ?', [
-            tr[lang].name.trim().slice(0, 255),
-            (tr[lang].category || '').trim().slice(0, 100) || category,
-            id,
-            lang,
-          ])
-        }
-      })
-    }
+
+    const autoDescLangs = LANGS.filter((lang) => !manualDescs.includes(lang))
+    const retranslateDesc = autoDescLangs.length > 0 && ((before[0].description || null) !== description || retranslateNames)
+    ;(async () => {
+      if (retranslateNames) {
+        await autoTranslateProduct(id, name, category)
+        await saveManualNames() // автоперевод не должен перезаписать то, что админ ввёл вручную
+      }
+      if (retranslateDesc) await autoTranslateDescription(id, description, autoDescLangs)
+    })().catch((err) => console.error('Background translate failed:', err.message))
 
     res.json({ success: true })
   } catch (err) {

@@ -56,6 +56,7 @@ export default function Checkout({ session, cart, onBack, onDone, onOpenLogin })
           address,
           comment,
           paymentMethod,
+          lang, // письмо-подтверждение придёт на языке сайта
         }),
       })
       const data = await res.json().catch(() => null)

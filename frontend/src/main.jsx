@@ -13,6 +13,7 @@ const Checkout = lazy(() => import('./Checkout.jsx'))
 const Login = lazy(() => import('./Login.jsx'))
 const MyOrders = lazy(() => import('./MyOrders.jsx'))
 const PaymentResult = lazy(() => import('./PaymentResult.jsx'))
+const ProductPage = lazy(() => import('./ProductPage.jsx'))
 const ResetPassword = lazy(() => import('./ResetPassword.jsx'))
 
 const CART_KEY = 'cart'
@@ -113,17 +114,34 @@ function Root() {
       />
     )
   } else {
+    // Витрина остаётся смонтированной под страницей товара: при возврате назад
+    // сохраняются категория, поиск, «Показать ещё» и позиция прокрутки
+    const productMatch = path.match(/^\/product\/(\d+)$/)
     page = (
-      <Storefront
-        key={session?.token || 'guest'}
-        session={session}
-        cart={cart}
-        onChangeQty={changeQty}
-        onCheckout={() => navigate('/checkout')}
-        onOpenLogin={() => setShowLogin(true)}
-        onOpenAdmin={() => navigate('/admin')}
-        onOpenMyOrders={() => navigate('/orders')}
-      />
+      <>
+        <Storefront
+          key={session?.token || 'guest'}
+          hidden={!!productMatch}
+          session={session}
+          cart={cart}
+          onChangeQty={changeQty}
+          onCheckout={() => navigate('/checkout')}
+          onOpenLogin={() => setShowLogin(true)}
+          onOpenAdmin={() => navigate('/admin')}
+          onOpenMyOrders={() => navigate('/orders')}
+        />
+        {productMatch && (
+          <ProductPage
+            key={productMatch[1]}
+            productId={Number(productMatch[1])}
+            session={session}
+            cart={cart}
+            onChangeQty={changeQty}
+            onBack={goShop}
+            onCheckout={() => navigate('/checkout')}
+          />
+        )}
+      </>
     )
   }
 
