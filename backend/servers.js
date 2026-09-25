@@ -9,6 +9,41 @@ const app = express()
 const PORT = process.env.PORT || 3000
 
 app.use(cors())
+
+// --- Stripe (оплата картой) ---
+
+const stripe = process.env.STRIPE_SECRET_KEY ? require('stripe')(process.env.STRIPE_SECRET_KEY) : null
+const FRONTEND_URL = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/+$/, '')
+const STRIPE_CURRENCY = (process.env.STRIPE_CURRENCY || 'mdl').toLowerCase()
+
+// Webhook обязан получать «сырое» тело запроса, поэтому регистрируется до express.json()
+app.post('/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  if (!stripe || !process.env.STRIPE_WEBHOOK_SECRET) return res.status(501).end()
+  let event
+  try {
+    event = stripe.webhooks.constructEvent(req.body, req.headers['stripe-signature'], process.env.STRIPE_WEBHOOK_SECRET)
+  } catch (err) {
+    console.error('Stripe webhook signature error:', err.message)
+    return res.status(400).send('Invalid signature')
+  }
+
+  try {
+    const session = event.data.object
+    const orderId = parseInt(session.metadata?.order_id)
+    if (orderId) {
+      if (event.type === 'checkout.session.completed' && session.payment_status === 'paid') {
+        await pool.query("UPDATE orders SET status = 'paid' WHERE id = ? AND status = 'pending_payment'", [orderId])
+      } else if (event.type === 'checkout.session.expired') {
+        await pool.query("UPDATE orders SET status = 'cancelled' WHERE id = ? AND status = 'pending_payment'", [orderId])
+      }
+    }
+    res.json({ received: true })
+  } catch (err) {
+    console.error(err)
+    res.status(500).end()
+  }
+})
+
 app.use(express.json({ limit: '10mb' }))
 
 // --- Единственное место для конверсии цены (НДС + единицы продажи) ---
@@ -173,12 +208,13 @@ app.post('/auth/google', async (req, res) => {
 
 // --- Заказы ---
 
-const PAYMENT_METHODS = ['cash', 'invoice']
+const PAYMENT_METHODS = ['cash', 'invoice', 'card']
 
 app.post('/orders', requireRole('client'), async (req, res) => {
   try {
     const { items, contactName, phone, address, comment, paymentMethod } = req.body
     if (!PAYMENT_METHODS.includes(paymentMethod)) return res.status(400).json({ error: 'Metodă de plată invalidă' })
+    if (paymentMethod === 'card' && !stripe) return res.status(501).json({ error: 'Plata cu cardul nu este configurată' })
     if (!contactName || !phone || !address) return res.status(400).json({ error: 'Completați datele de livrare' })
     if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'Coșul este gol' })
 
@@ -205,9 +241,18 @@ app.post('/orders', requireRole('client'), async (req, res) => {
     try {
       await conn.beginTransaction()
       const [result] = await conn.query(
-        `INSERT INTO orders (client_id, payment_method, contact_name, phone, address, comment, total)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [req.user.clientId, paymentMethod, contactName, phone, address, comment || null, total]
+        `INSERT INTO orders (client_id, status, payment_method, contact_name, phone, address, comment, total)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          req.user.clientId,
+          paymentMethod === 'card' ? 'pending_payment' : 'new',
+          paymentMethod,
+          contactName,
+          phone,
+          address,
+          comment || null,
+          total,
+        ]
       )
       for (const l of lines) {
         await conn.query(
@@ -217,6 +262,32 @@ app.post('/orders', requireRole('client'), async (req, res) => {
         )
       }
       await conn.commit()
+
+      if (paymentMethod === 'card') {
+        try {
+          const session = await stripe.checkout.sessions.create({
+            mode: 'payment',
+            line_items: lines.map((l) => ({
+              quantity: l.qty,
+              price_data: {
+                currency: STRIPE_CURRENCY,
+                unit_amount: Math.round(l.unitPrice * 100),
+                product_data: { name: l.product.name + ' (' + l.product.saleUnit + ')' },
+              },
+            })),
+            metadata: { order_id: String(result.insertId) },
+            success_url: FRONTEND_URL + '/?payment=success&order=' + result.insertId,
+            cancel_url: FRONTEND_URL + '/?payment=cancelled&order=' + result.insertId,
+          })
+          await pool.query('UPDATE orders SET stripe_session_id = ? WHERE id = ?', [session.id, result.insertId])
+          return res.status(201).json({ id: result.insertId, total, paymentUrl: session.url })
+        } catch (err) {
+          console.error('Stripe error:', err.message)
+          await pool.query("UPDATE orders SET status = 'cancelled' WHERE id = ?", [result.insertId])
+          return res.status(502).json({ error: 'Nu s-a putut iniția plata cu cardul' })
+        }
+      }
+
       res.status(201).json({ id: result.insertId, total })
     } catch (err) {
       await conn.rollback()
@@ -224,6 +295,36 @@ app.post('/orders', requireRole('client'), async (req, res) => {
     } finally {
       conn.release()
     }
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Eroare server' })
+  }
+})
+
+// Что доступно на фронтенде (например, включена ли оплата картой)
+app.get('/config', (req, res) => {
+  res.json({ cardPayments: !!stripe })
+})
+
+// Статус собственного заказа; для неоплаченного картой заказа уточняем у Stripe
+// (работает даже без webhook — например, при локальной разработке)
+app.get('/orders/:id', requireRole('client'), async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT id, status, total, stripe_session_id FROM orders WHERE id = ? AND client_id = ?', [
+      parseInt(req.params.id),
+      req.user.clientId,
+    ])
+    if (rows.length === 0) return res.status(404).json({ error: 'Comanda nu a fost găsită' })
+    const order = rows[0]
+
+    if (order.status === 'pending_payment' && order.stripe_session_id && stripe) {
+      const session = await stripe.checkout.sessions.retrieve(order.stripe_session_id)
+      if (session.payment_status === 'paid') {
+        await pool.query("UPDATE orders SET status = 'paid' WHERE id = ? AND status = 'pending_payment'", [order.id])
+        order.status = 'paid'
+      }
+    }
+    res.json({ id: order.id, status: order.status, total: Number(order.total) })
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: 'Eroare server' })

@@ -38,6 +38,7 @@ export default function Orders() {
                 <th>{t('colCustomer')}</th>
                 <th>{t('colContact')}</th>
                 <th>{t('colPayment')}</th>
+                <th>{t('colStatus')}</th>
                 <th>{t('colItems')}</th>
                 <th>{t('colTotal')}</th>
               </tr>
@@ -62,6 +63,7 @@ export default function Orders() {
                     )}
                   </td>
                   <td>{t('pay_' + o.paymentMethod)}</td>
+                  <td>{t('st_' + o.status)}</td>
                   <td>
                     {o.items.map((i, idx) => (
                       <div key={idx}>

@@ -4,6 +4,7 @@ import './index.css'
 import App from './App.jsx'
 import Checkout from './Checkout.jsx'
 import Login from './Login.jsx'
+import PaymentResult from './PaymentResult.jsx'
 import Storefront from './Storefront.jsx'
 import { getSession } from './api'
 import { LangProvider } from './i18n'
@@ -11,7 +12,7 @@ import { LangProvider } from './i18n'
 function Root() {
   const [session, setSession] = useState(getSession)
   const [showLogin, setShowLogin] = useState(false)
-  const [view, setView] = useState('shop')
+  const [view, setView] = useState(() => (new URLSearchParams(window.location.search).get('payment') ? 'payment' : 'shop'))
   // корзина живёт здесь, чтобы переходить между витриной и страницей оплаты не теряя товары
   const [cart, setCart] = useState({})
 
@@ -27,6 +28,18 @@ function Root() {
       else next[id] = qty
       return next
     })
+  }
+
+  if (view === 'payment') {
+    return (
+      <PaymentResult
+        session={session}
+        onBack={() => {
+          window.history.replaceState({}, '', window.location.pathname)
+          setView('shop')
+        }}
+      />
+    )
   }
 
   if (session?.role === 'admin' && view === 'admin') {

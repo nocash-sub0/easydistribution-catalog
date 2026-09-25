@@ -16,6 +16,7 @@ export default function Checkout({ session, cart, onBack, onDone, onOpenLogin })
   const [address, setAddress] = useState('')
   const [comment, setComment] = useState('')
   const [paymentMethod, setPaymentMethod] = useState('cash')
+  const [cardEnabled, setCardEnabled] = useState(false)
 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
@@ -23,6 +24,11 @@ export default function Checkout({ session, cart, onBack, onDone, onOpenLogin })
 
   // Свежие цены берём с сервера, чтобы итог совпадал с тем, что посчитает бэкенд
   useEffect(() => {
+    apiFetch('/config')
+      .then((res) => res.json())
+      .then((cfg) => setCardEnabled(!!cfg.cardPayments))
+      .catch(() => {})
+
     apiFetch('/catalog')
       .then((res) => res.json())
       .then(setProducts)
@@ -54,8 +60,13 @@ export default function Checkout({ session, cart, onBack, onDone, onOpenLogin })
       const data = await res.json().catch(() => null)
       if (!data) throw new Error(t('serverDown'))
       if (!res.ok) throw new Error(data.error || t('orderFailed'))
-      setResult(data)
       onDone()
+      if (data.paymentUrl) {
+        // оплата картой: уходим на страницу Stripe
+        window.location.assign(data.paymentUrl)
+        return
+      }
+      setResult(data)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -66,6 +77,7 @@ export default function Checkout({ session, cart, onBack, onDone, onOpenLogin })
   const paymentOptions = [
     { id: 'cash', title: t('payCash'), desc: t('payCashDesc') },
     { id: 'invoice', title: t('payInvoice'), desc: t('payInvoiceDesc') },
+    ...(cardEnabled ? [{ id: 'card', title: t('payCard'), desc: t('payCardDesc') }] : []),
   ]
 
   return (
@@ -158,12 +170,14 @@ export default function Checkout({ session, cart, onBack, onDone, onOpenLogin })
                           </span>
                         </label>
                       ))}
-                      <label className="pay-option disabled">
-                        <input type="radio" disabled />
-                        <span>
-                          <strong>{t('payCard')}</strong> <small>({t('soon')})</small>
-                        </span>
-                      </label>
+                      {!cardEnabled && (
+                        <label className="pay-option disabled">
+                          <input type="radio" disabled />
+                          <span>
+                            <strong>{t('payCard')}</strong> <small>({t('soon')})</small>
+                          </span>
+                        </label>
+                      )}
                     </div>
                   </div>
 
@@ -189,7 +203,7 @@ export default function Checkout({ session, cart, onBack, onDone, onOpenLogin })
                     {error && <p className="form-error">{error}</p>}
 
                     <button type="submit" className="btn btn-yellow" style={{ width: '100%' }} disabled={busy}>
-                      {busy ? t('placing') : t('placeOrder')}
+                      {busy ? (paymentMethod === 'card' ? t('redirecting') : t('placing')) : t('placeOrder')}
                     </button>
                   </div>
                 </form>
