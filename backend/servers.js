@@ -83,38 +83,24 @@ function requireRole(role) {
 
 const requireAdmin = requireRole('admin')
 
-app.post('/admin/login', (req, res) => {
-  const { username, password } = req.body
-  if (username === process.env.ADMIN_USERNAME && password === process.env.ADMIN_PASSWORD) {
-    const token = jwt.sign({ role: 'admin' }, process.env.JWT_SECRET, { expiresIn: '7d' })
-    return res.json({ token })
-  }
-  res.status(401).json({ error: 'Nume de utilizator sau parolă incorectă' })
-})
-
-// Публичный список клиентов для формы входа (только id и имя)
-app.get('/auth/clients', async (req, res) => {
+// Единый вход: логин админа из .env либо id/название клиента
+app.post('/login', async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT id, name FROM clients ORDER BY name')
-    res.json(rows)
-  } catch (err) {
-    console.error(err)
-    res.status(500).json({ error: 'Eroare server' })
-  }
-})
+    const { username, password } = req.body
+    if (!username || !password) return res.status(400).json({ error: 'Introduceți login și parola' })
 
-app.post('/client/login', async (req, res) => {
-  try {
-    const { clientId, password } = req.body
-    const [rows] = await pool.query('SELECT * FROM clients WHERE id = ?', [clientId])
-    if (rows.length === 0 || !rows[0].password_hash) {
-      return res.status(401).json({ error: 'Client negăsit' })
+    if (username === process.env.ADMIN_USERNAME && password === process.env.ADMIN_PASSWORD) {
+      const token = jwt.sign({ role: 'admin' }, process.env.JWT_SECRET, { expiresIn: '7d' })
+      return res.json({ token, role: 'admin', name: 'Администратор' })
     }
+
+    const [rows] = await pool.query('SELECT * FROM clients WHERE id = ? OR LOWER(name) = LOWER(?) LIMIT 1', [username, username])
     const client = rows[0]
-    const match = await bcrypt.compare(password || '', client.password_hash)
-    if (!match) return res.status(401).json({ error: 'Parolă incorectă' })
+    const match = client && client.password_hash && (await bcrypt.compare(password, client.password_hash))
+    if (!match) return res.status(401).json({ error: 'Login sau parolă incorectă' })
+
     const token = jwt.sign({ role: 'client', clientId: client.id }, process.env.JWT_SECRET, { expiresIn: '7d' })
-    res.json({ token, clientName: client.name })
+    res.json({ token, role: 'client', name: client.name })
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: 'Eroare server' })

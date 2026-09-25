@@ -54,7 +54,7 @@ function ProductCard({ product, qty, onChangeQty }) {
   )
 }
 
-export default function Storefront({ session }) {
+export default function Storefront({ session, onOpenLogin, onOpenAdmin }) {
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -126,11 +126,20 @@ export default function Storefront({ session }) {
           placeholder="Поиск товара..."
           style={{ flexGrow: 1, minWidth: '180px', padding: '9px', fontSize: '15px' }}
         />
-        <span style={{ color: '#4b5563' }}>{session.clientName}</span>
         <button onClick={() => setShowCart(!showCart)}>
           Корзина ({cartCount}) · {formatMDL(cartTotal)}
         </button>
-        <button onClick={logout}>Выйти</button>
+        {session ? (
+          <>
+            <span style={{ color: '#4b5563' }}>{session.name}</span>
+            {session.role === 'admin' && <button onClick={onOpenAdmin}>Админ-панель</button>}
+            <button onClick={logout}>Выйти</button>
+          </>
+        ) : (
+          <button onClick={onOpenLogin} style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', padding: '8px 16px', cursor: 'pointer' }}>
+            Войти
+          </button>
+        )}
       </header>
 
       <div style={{ padding: '20px 24px' }}>

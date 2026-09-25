@@ -117,7 +117,7 @@ function VirtualizedTable({ products, editingId, setEditingId, handlePriceSave }
   )
 }
 
-function App() {
+function App({ onOpenShop }) {
   const [activeTab, setActiveTab] = useState('catalog')
 
   const [products, setProducts] = useState([])
@@ -330,6 +330,7 @@ function App() {
         >
           Списки цен
         </button>{' '}
+        <button onClick={onOpenShop}>К магазину</button>{' '}
         <button onClick={logout}>Выйти</button>
       </div>
 
