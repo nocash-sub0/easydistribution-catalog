@@ -8,7 +8,7 @@ function formatMDL(value) {
 }
 
 function ProductCard({ product, qty, onChangeQty }) {
-  const { t } = useLang()
+  const { t, unit } = useLang()
   const hasPrice = product.saleUnitPriceWithVat !== null
   return (
     <div className="card">
@@ -22,11 +22,11 @@ function ProductCard({ product, qty, onChangeQty }) {
       {hasPrice ? (
         <>
           <div className="price-main">
-            {formatMDL(product.saleUnitPriceWithVat)} <small>/ {product.saleUnit}</small>
+            {formatMDL(product.saleUnitPriceWithVat)} <small>/ {unit(product.saleUnit)}</small>
           </div>
           <div className="price-sub">
-            {formatMDL(product.priceWithVat)} / {product.baseUnit} · {t('inPack')} {product.saleUnitFactor}{' '}
-            {product.baseUnit} · {t('vatIncluded')} {product.vatRate}%
+            {formatMDL(product.priceWithVat)} / {unit(product.baseUnit)} · {t('inPack')} {product.saleUnitFactor}{' '}
+            {unit(product.baseUnit)} · {t('vatIncluded')} {product.vatRate}%
           </div>
         </>
       ) : (
@@ -49,7 +49,7 @@ function ProductCard({ product, qty, onChangeQty }) {
 }
 
 export default function Storefront({ session, cart, onChangeQty, onCheckout, onOpenLogin, onOpenAdmin }) {
-  const { t } = useLang()
+  const { t, lang, unit } = useLang()
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -63,7 +63,7 @@ export default function Storefront({ session, cart, onChangeQty, onCheckout, onO
   const fetchCatalog = () => {
     setLoading(true)
     setError(null)
-    apiFetch('/catalog')
+    apiFetch(`/catalog?lang=${lang}`)
       .then((res) => {
         if (!res.ok) throw new Error('HTTP ' + res.status)
         return res.json()
@@ -78,7 +78,12 @@ export default function Storefront({ session, cart, onChangeQty, onCheckout, onO
       })
   }
 
-  useEffect(fetchCatalog, [])
+  // при смене языка заново загружаем каталог: названия и категории приходят уже переведёнными
+  useEffect(() => {
+    setCategory('all')
+    fetchCatalog()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lang])
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search), 300)
@@ -184,7 +189,7 @@ export default function Storefront({ session, cart, onChangeQty, onCheckout, onO
                       <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
                         <td style={{ padding: '8px 0' }}>{p.name}</td>
                         <td>
-                          {cart[p.id]} {p.saleUnit}
+                          {cart[p.id]} {unit(p.saleUnit)}
                         </td>
                         <td style={{ textAlign: 'right' }}>{formatMDL(cart[p.id] * p.saleUnitPriceWithVat)}</td>
                         <td style={{ textAlign: 'right' }}>

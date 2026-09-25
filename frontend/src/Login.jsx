@@ -42,7 +42,7 @@ function GoogleButton({ onCredential }) {
 }
 
 export default function Login({ onLogin, onClose }) {
-  const { t } = useLang()
+  const { t, tr } = useLang()
   const [mode, setMode] = useState('login')
   const [name, setName] = useState('')
   const [username, setUsername] = useState('')
@@ -63,7 +63,7 @@ export default function Login({ onLogin, onClose }) {
       })
       const data = await res.json().catch(() => null)
       if (!data) throw new Error(t('serverDown'))
-      if (!res.ok) throw new Error(data.error || fallbackError)
+      if (!res.ok) throw new Error(tr(data.error) || fallbackError)
 
       const session = { role: data.role, token: data.token, name: data.name }
       saveSession(session)

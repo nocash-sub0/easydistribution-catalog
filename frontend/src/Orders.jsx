@@ -3,7 +3,7 @@ import { apiFetch } from './api'
 import { useLang } from './i18n'
 
 export default function Orders() {
-  const { t } = useLang()
+  const { t, unit } = useLang()
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -67,7 +67,7 @@ export default function Orders() {
                   <td>
                     {o.items.map((i, idx) => (
                       <div key={idx}>
-                        {i.name} — {i.qty} {i.saleUnit} × {i.unitPrice.toFixed(2)}
+                        {i.name} — {i.qty} {unit(i.saleUnit)} × {i.unitPrice.toFixed(2)}
                       </div>
                     ))}
                   </td>

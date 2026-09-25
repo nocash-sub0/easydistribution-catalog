@@ -7,7 +7,7 @@ function formatMDL(value) {
 }
 
 export default function Checkout({ session, cart, onBack, onDone, onOpenLogin }) {
-  const { t } = useLang()
+  const { t, tr, unit, lang } = useLang()
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -29,7 +29,7 @@ export default function Checkout({ session, cart, onBack, onDone, onOpenLogin })
       .then((cfg) => setCardEnabled(!!cfg.cardPayments))
       .catch(() => {})
 
-    apiFetch('/catalog')
+    apiFetch(`/catalog?lang=${lang}`)
       .then((res) => res.json())
       .then(setProducts)
       .catch(() => setError(t('loadError')))
@@ -59,7 +59,7 @@ export default function Checkout({ session, cart, onBack, onDone, onOpenLogin })
       })
       const data = await res.json().catch(() => null)
       if (!data) throw new Error(t('serverDown'))
-      if (!res.ok) throw new Error(data.error || t('orderFailed'))
+      if (!res.ok) throw new Error(tr(data.error) || t('orderFailed'))
       onDone()
       if (data.paymentUrl) {
         // оплата картой: уходим на страницу Stripe
@@ -199,7 +199,7 @@ export default function Checkout({ session, cart, onBack, onDone, onOpenLogin })
                           {p.name}
                           <br />
                           <small>
-                            {cart[p.id]} {p.saleUnit} × {formatMDL(p.saleUnitPriceWithVat)}
+                            {cart[p.id]} {unit(p.saleUnit)} × {formatMDL(p.saleUnitPriceWithVat)}
                           </small>
                         </span>
                         <strong>{formatMDL(cart[p.id] * p.saleUnitPriceWithVat)}</strong>

@@ -4,6 +4,7 @@ const pool = require('./db')
 const jwt = require('jsonwebtoken')
 const bcrypt = require('bcryptjs')
 const crypto = require('crypto')
+const { autoTranslateProduct } = require('./translate')
 
 const app = express()
 const PORT = process.env.PORT || 3000
@@ -67,8 +68,8 @@ function mapProductRow(row) {
   return {
     id: row.id,
     code: row.code,
-    name: row.name,
-    category: row.category,
+    name: row.tr_name || row.name,
+    category: row.tr_category || row.category,
     baseUnit: row.base_unit,
     saleUnit: row.sale_unit,
     saleUnitFactor: Number(row.sale_unit_factor),
@@ -174,6 +175,7 @@ app.post('/register', async (req, res) => {
     ])
     res.status(201).json(issueClientToken({ id, name }))
   } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'Acest email este deja înregistrat' })
     console.error(err)
     res.status(500).json({ error: 'Eroare server' })
   }
@@ -362,7 +364,8 @@ app.get('/orders', requireAdmin, async (req, res) => {
 
 // --- Каталог ---
 
-async function buildCatalog(clientId) {
+async function buildCatalog(clientId, lang) {
+  const trLang = ['ru', 'en'].includes(lang) ? lang : null
   const [defaultLists] = await pool.query('SELECT id FROM price_lists WHERE is_default = TRUE LIMIT 1')
   const defaultListId = defaultLists[0].id
 
@@ -376,12 +379,13 @@ async function buildCatalog(clientId) {
   }
 
   const [rows] = await pool.query(
-    `SELECT p.*, active.price AS active_price, def.price AS default_price
+    `SELECT p.*, tr.name AS tr_name, tr.category AS tr_category, active.price AS active_price, def.price AS default_price
      FROM products p
+     LEFT JOIN product_translations tr ON tr.product_id = p.id AND tr.lang = ?
      LEFT JOIN price_list_items active ON active.product_id = p.id AND active.price_list_id = ?
      LEFT JOIN price_list_items def ON def.product_id = p.id AND def.price_list_id = ?
      ORDER BY p.id`,
-    [activeListId, defaultListId]
+    [trLang, activeListId, defaultListId]
   )
 
   const isDefaultActive = activeListId === defaultListId
@@ -411,7 +415,7 @@ app.get('/catalog', async (req, res) => {
     if (user?.role === 'client') clientId = user.clientId
     else if (user?.role === 'admin') clientId = req.query.clientId || null
 
-    res.json(await buildCatalog(clientId))
+    res.json(await buildCatalog(clientId, req.query.lang))
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: 'Eroare server' })
@@ -463,6 +467,7 @@ app.post('/catalog/products', requireAdmin, async (req, res) => {
       [defaultListId, result.insertId, parseFloat(price)]
     )
 
+    autoTranslateProduct(result.insertId, name, category)
     res.status(201).json({ id: result.insertId, code, name, category })
   } catch (err) {
     console.error(err)
@@ -481,6 +486,7 @@ app.post('/catalog/products/bulk', requireAdmin, async (req, res) => {
     const defaultListId = defaultLists[0].id
 
     let imported = 0
+    const toTranslate = []
     const rowErrors = []
 
     for (let index = 0; index < rows.length; index++) {
@@ -502,10 +508,16 @@ app.post('/catalog/products/bulk', requireAdmin, async (req, res) => {
           [defaultListId, result.insertId, parseFloat(row.price)]
         )
         imported++
+        toTranslate.push([result.insertId, row.name, row.category])
       } catch (err) {
         rowErrors.push({ row: index + 1, code: row.code, errors: ['дубликат кода или ошибка записи'] })
       }
     }
+
+    // переводим импортированные товары в фоне, по одному, чтобы не превысить лимиты сервиса
+    ;(async () => {
+      for (const [id, name, category] of toTranslate) await autoTranslateProduct(id, name, category)
+    })()
 
     res.json({ imported, total: rows.length, errors: rowErrors })
   } catch (err) {
@@ -583,7 +595,7 @@ app.delete('/price-lists/:id', requireAdmin, async (req, res) => {
 app.get('/clients', requireAdmin, async (req, res) => {
   try {
     const [rows] = await pool.query(`
-      SELECT c.id, c.name, ca.price_list_id AS priceListId
+      SELECT c.id, c.name, c.email, ca.price_list_id AS priceListId
       FROM clients c
       LEFT JOIN client_assignments ca ON ca.client_id = c.id
       ORDER BY c.name

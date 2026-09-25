@@ -8,7 +8,7 @@ function formatMDL(value) {
 }
 
 export default function PriceLists() {
-  const { t } = useLang()
+  const { t, tr } = useLang()
   const [priceLists, setPriceLists] = useState([])
   const [selectedListId, setSelectedListId] = useState(null)
   const [items, setItems] = useState([])
@@ -85,7 +85,7 @@ export default function PriceLists() {
     const res = await apiFetch(`/price-lists/${id}`, { method: 'DELETE' })
     const data = await res.json()
     if (!res.ok) {
-      alert(data.error)
+      alert(tr(data.error))
       return
     }
     if (selectedListId === id) setSelectedListId(null)
@@ -130,7 +130,7 @@ export default function PriceLists() {
     })
     const data = await res.json()
     if (!res.ok) {
-      alert(data.error)
+      alert(tr(data.error))
       return
     }
     setDiscountPreview(data.preview)
@@ -148,7 +148,7 @@ export default function PriceLists() {
     })
     const data = await res.json()
     if (!res.ok) {
-      alert(data.error)
+      alert(tr(data.error))
       return
     }
     setDiscountPreview(null)
@@ -248,7 +248,8 @@ export default function PriceLists() {
                         checked={selectedClientIds.includes(c.id)}
                         onChange={() => toggleClientSelection(c.id)}
                       />{' '}
-                      {c.name}{' '}
+                      {c.name}
+                      {c.email && <small style={{ color: '#888' }}> &lt;{c.email}&gt;</small>}{' '}
                       <small style={{ color: '#888' }}>
                         ({t('currently')}: {priceLists.find((pl) => pl.id === c.priceListId)?.name || '—'})
                       </small>
