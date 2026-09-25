@@ -26,13 +26,13 @@ export default function PriceLists() {
   const [discountPreview, setDiscountPreview] = useState(null)
 
   const fetchPriceLists = () => {
-    fetch('${import.meta.env.VITE_API_URL}/price-lists')
+    fetch(`${import.meta.env.VITE_API_URL}/price-lists`)
       .then((res) => res.json())
       .then(setPriceLists)
   }
 
   const fetchClients = () => {
-    fetch('${import.meta.env.VITE_API_URL}/clients')
+    fetch(`${import.meta.env.VITE_API_URL}/clients`)
       .then((res) => res.json())
       .then(setClients)
   }
@@ -58,7 +58,7 @@ export default function PriceLists() {
 
   const handleCreateList = async () => {
     if (!newListName.trim()) return
-    await fetch('${import.meta.env.VITE_API_URL}/price-lists', {
+    await fetch(`${import.meta.env.VITE_API_URL}/price-lists`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: newListName }),
