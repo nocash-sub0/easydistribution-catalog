@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import Papa from 'papaparse'
 import PriceLists from './PriceLists'
+import Orders from './Orders'
 import { apiFetch, logout } from './api'
 import { APP_NAME, LangSwitch, useLang } from './i18n'
 
@@ -25,6 +26,7 @@ function SkeletonRow() {
 }
 
 function VirtualizedTable({ products, editingId, setEditingId, handlePriceSave }) {
+  const { t } = useLang()
   const parentRef = useRef(null)
 
   const rowVirtualizer = useVirtualizer({
@@ -37,13 +39,13 @@ function VirtualizedTable({ products, editingId, setEditingId, handlePriceSave }
   return (
     <div>
       <div style={{ display: 'flex', fontWeight: 'bold', borderBottom: '2px solid #333', padding: '8px 0' }}>
-        <div style={{ width: '220px' }}>Название</div>
-        <div style={{ width: '120px' }}>Категория</div>
-        <div style={{ width: '100px' }}>Цена/buc</div>
-        <div style={{ width: '120px' }}>Цена+TVA</div>
-        <div style={{ width: '180px' }}>Цена за bax</div>
+        <div style={{ width: '220px' }}>{t('colName')}</div>
+        <div style={{ width: '120px' }}>{t('colCategory')}</div>
+        <div style={{ width: '100px' }}>{t('colPriceBuc')}</div>
+        <div style={{ width: '120px' }}>{t('colPriceVat')}</div>
+        <div style={{ width: '180px' }}>{t('colPriceBax')}</div>
         <div style={{ width: '60px' }}>TVA</div>
-        <div style={{ width: '100px' }}>Источник</div>
+        <div style={{ width: '100px' }}>{t('colSource')}</div>
       </div>
 
       <div
@@ -160,7 +162,7 @@ function App({ onOpenShop }) {
 
     apiFetch(url)
       .then((res) => {
-        if (!res.ok) throw new Error('Сервер вернул ошибку')
+        if (!res.ok) throw new Error(t('serverError'))
         return res.json()
       })
       .then((data) => {
@@ -198,10 +200,10 @@ function App({ onOpenShop }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ price: newPrice }),
       })
-      if (!res.ok) throw new Error('Не удалось сохранить цену')
+      if (!res.ok) throw new Error(t('savePriceFail'))
       fetchCatalog()
     } catch (err) {
-      alert('Ошибка сохранения: ' + err.message)
+      alert(t('saveError') + ': ' + err.message)
     } finally {
       setEditingId(null)
     }
@@ -224,7 +226,7 @@ function App({ onOpenShop }) {
       })
 
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Ошибка при добавлении товара')
+      if (!res.ok) throw new Error(data.error || t('addFail'))
 
       setFormData({
         code: '',
@@ -245,23 +247,23 @@ function App({ onOpenShop }) {
 
   function validateCsvRow(row) {
     const errors = []
-    if (!row.code) errors.push('код обязателен')
-    if (!row.name) errors.push('название обязательно')
-    if (!row.category) errors.push('категория обязательна')
+    if (!row.code) errors.push(t('errCodeReq'))
+    if (!row.name) errors.push(t('errNameReq'))
+    if (!row.category) errors.push(t('errCatReq'))
 
     const vatRate = parseFloat(row.vatRate)
     if (isNaN(vatRate) || vatRate < 0 || vatRate > 100) {
-      errors.push('cotă TVA invalidă')
+      errors.push(t('errVat'))
     }
 
     const saleUnitFactor = parseFloat(row.saleUnitFactor)
     if (isNaN(saleUnitFactor) || saleUnitFactor <= 0) {
-      errors.push('некорректный коэффициент единицы продажи')
+      errors.push(t('errFactor'))
     }
 
     const price = parseFloat(row.price)
     if (isNaN(price) || price < 0) {
-      errors.push('некорректная цена')
+      errors.push(t('errPrice'))
     }
 
     return errors
@@ -302,7 +304,7 @@ function App({ onOpenShop }) {
       setImportResult(data)
       fetchCatalog()
     } catch (err) {
-      alert('Ошибка импорта: ' + err.message)
+      alert(t('importError') + ': ' + err.message)
     }
   }
 
@@ -328,6 +330,9 @@ function App({ onOpenShop }) {
           <button className={'tab' + (activeTab === 'pricelists' ? ' active' : '')} onClick={() => setActiveTab('pricelists')}>
             {t('adminPriceLists')}
           </button>
+          <button className={'tab' + (activeTab === 'orders' ? ' active' : '')} onClick={() => setActiveTab('orders')}>
+            {t('adminOrders')}
+          </button>
           <div className="spacer" />
           <LangSwitch />
           <button className="btn btn-ghost" onClick={onOpenShop}>{t('toShop')}</button>
@@ -335,7 +340,9 @@ function App({ onOpenShop }) {
         </div>
       </div>
 
-      {activeTab === 'pricelists' ? (
+      {activeTab === 'orders' ? (
+        <Orders />
+      ) : activeTab === 'pricelists' ? (
         <PriceLists />
       ) : (
         <div style={{ padding: '20px', fontFamily: 'sans-serif' }}>
@@ -347,13 +354,13 @@ function App({ onOpenShop }) {
             }
           `}</style>
 
-          <h1>Каталог товаров</h1>
+          <h1>{t('catalogTitle')}</h1>
 
           <div style={{ marginBottom: '10px', display: 'flex', gap: '16px', alignItems: 'center' }}>
             <label>
-              Клиент:{' '}
+              {t('clientLbl')}:{' '}
               <select value={clientId} onChange={(e) => setClientId(e.target.value)}>
-                <option value="">Без клиента (дефолт)</option>
+                <option value="">{t('noClient')}</option>
                 {clientList.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}
@@ -363,9 +370,9 @@ function App({ onOpenShop }) {
             </label>
 
             <label>
-              Категория:{' '}
+              {t('categoryLbl')}:{' '}
               <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
-                <option value="all">Все категории</option>
+                <option value="all">{t('allCats')}</option>
                 {categories.map((cat) => (
                   <option key={cat} value={cat}>
                     {cat}
@@ -375,43 +382,43 @@ function App({ onOpenShop }) {
             </label>
 
             <label>
-              Поиск:{' '}
+              {t('searchLbl')}:{' '}
               <input
                 type="text"
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
-                placeholder="Название товара..."
+                placeholder={t('productNamePh')}
               />
             </label>
 
             <button onClick={() => setShowForm(!showForm)}>
-              {showForm ? 'Отмена' : '+ Добавить товар'}
+              {showForm ? t('cancel') : t('addProduct')}
             </button>
           </div>
 
           <div style={{ marginBottom: '16px' }}>
             <button onClick={() => setShowCsvImport(!showCsvImport)}>
-              {showCsvImport ? 'Скрыть импорт CSV' : 'Импорт CSV'}
+              {showCsvImport ? t('hideCsv') : t('importCsv')}
             </button>
 
             {showCsvImport && (
               <div style={{ border: '1px solid #ccc', padding: '16px', marginTop: '10px', maxWidth: '700px' }}>
                 <p>
-                  Ожидаемые колонки: code, name, category, baseUnit, saleUnit, saleUnitFactor, vatRate, price
+                  {t('expectedCols')}: code, name, category, baseUnit, saleUnit, saleUnitFactor, vatRate, price
                 </p>
                 <input type="file" accept=".csv" onChange={handleCsvFile} />
 
                 {csvValidation.length > 0 && (
                   <>
-                    <h4>Превью ({csvValidation.length} строк)</h4>
+                    <h4>{t('previewRows', { n: csvValidation.length })}</h4>
                     <div style={{ maxHeight: '300px', overflow: 'auto' }}>
                       <table border="1" cellPadding="6" style={{ borderCollapse: 'collapse', width: '100%', fontSize: '13px' }}>
                         <thead>
                           <tr>
-                            <th>Строка</th>
-                            <th>Код</th>
-                            <th>Название</th>
-                            <th>Статус</th>
+                            <th>{t('colRow')}</th>
+                            <th>{t('colCode')}</th>
+                            <th>{t('colName')}</th>
+                            <th>{t('colStatus')}</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -428,24 +435,23 @@ function App({ onOpenShop }) {
                     </div>
 
                     <p style={{ marginTop: '10px' }}>
-                      Валидных строк: {csvValidation.filter((v) => v.errors.length === 0).length} из{' '}
-                      {csvValidation.length}
+                      {t('validRows', { n: csvValidation.filter((v) => v.errors.length === 0).length, total: csvValidation.length })}
                     </p>
 
-                    <button onClick={handleCsvImport}>Импортировать валидные строки</button>
+                    <button onClick={handleCsvImport}>{t('importValid')}</button>
                   </>
                 )}
 
                 {importResult && (
                   <div style={{ marginTop: '10px' }}>
                     <p>
-                      Импортировано: {importResult.imported} из {importResult.total}
+                      {t('imported', { n: importResult.imported, total: importResult.total })}
                     </p>
                     {importResult.errors.length > 0 && (
                       <ul>
                         {importResult.errors.map((e, i) => (
                           <li key={i}>
-                            Строка {e.row} ({e.code}): {e.errors.join(', ')}
+                            {t('rowLine', { row: e.row, code: e.code })}: {e.errors.join(', ')}
                           </li>
                         ))}
                       </ul>
@@ -461,44 +467,44 @@ function App({ onOpenShop }) {
               onSubmit={handleFormSubmit}
               style={{ border: '1px solid #ccc', padding: '16px', marginBottom: '16px', maxWidth: '400px' }}
             >
-              <h3>Новый товар</h3>
+              <h3>{t('newProduct')}</h3>
               {formError && <p style={{ color: 'red' }}>{formError}</p>}
               <div>
-                <label>Код: </label>
+                <label>{t('fCode')}: </label>
                 <input required value={formData.code} onChange={(e) => setFormData({ ...formData, code: e.target.value })} />
               </div>
               <div>
-                <label>Название: </label>
+                <label>{t('fName')}: </label>
                 <input required value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} />
               </div>
               <div>
-                <label>Категория: </label>
+                <label>{t('fCategory')}: </label>
                 <input required value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value })} />
               </div>
               <div>
-                <label>UM продажи: </label>
+                <label>{t('fSaleUm')}: </label>
                 <input value={formData.saleUnit} onChange={(e) => setFormData({ ...formData, saleUnit: e.target.value })} />
               </div>
               <div>
-                <label>Коэффициент: </label>
+                <label>{t('fFactor')}: </label>
                 <input required type="number" value={formData.saleUnitFactor} onChange={(e) => setFormData({ ...formData, saleUnitFactor: e.target.value })} />
               </div>
               <div>
-                <label>Ставка TVA (%): </label>
+                <label>{t('fVat')}: </label>
                 <input required type="number" value={formData.vatRate} onChange={(e) => setFormData({ ...formData, vatRate: e.target.value })} />
               </div>
               <div>
-                <label>Цена (buc): </label>
+                <label>{t('fPrice')}: </label>
                 <input required type="number" step="0.01" value={formData.price} onChange={(e) => setFormData({ ...formData, price: e.target.value })} />
               </div>
-              <button type="submit" style={{ marginTop: '10px' }}>Сохранить</button>
+              <button type="submit" style={{ marginTop: '10px' }}>{t('save')}</button>
             </form>
           )}
 
           {error && (
             <div style={{ padding: '20px', border: '1px solid red', borderRadius: '4px' }}>
-              <p style={{ color: 'red' }}>Ошибка загрузки: {error}</p>
-              <button onClick={fetchCatalog}>Повторить попытку</button>
+              <p style={{ color: 'red' }}>{t('loadError')}: {error}</p>
+              <button onClick={fetchCatalog}>{t('retry')}</button>
             </div>
           )}
 
@@ -506,13 +512,13 @@ function App({ onOpenShop }) {
             <table border="1" cellPadding="8" style={{ borderCollapse: 'collapse', width: '100%' }}>
               <thead>
                 <tr>
-                  <th>Название</th>
-                  <th>Категория</th>
-                  <th>Цена/buc</th>
-                  <th>Цена/buc + TVA</th>
-                  <th>Цена за bax</th>
+                  <th>{t('colName')}</th>
+                  <th>{t('colCategory')}</th>
+                  <th>{t('colPriceBuc')}</th>
+                  <th>{t('colPriceBucVat')}</th>
+                  <th>{t('colPriceBax')}</th>
                   <th>TVA</th>
-                  <th>Источник</th>
+                  <th>{t('colSource')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -524,12 +530,12 @@ function App({ onOpenShop }) {
           )}
 
           {!error && !loading && products.length === 0 && (
-            <p>В каталоге пока нет товаров. Добавьте первый товар кнопкой выше.</p>
+            <p>{t('emptyCatalog')}</p>
           )}
 
           {!error && !loading && products.length > 0 && (
             <>
-              <p>Всего товаров после фильтра: {filteredProducts.length}</p>
+              <p>{t('totalFiltered', { n: filteredProducts.length })}</p>
               <VirtualizedTable
                 products={filteredProducts}
                 editingId={editingId}
@@ -538,7 +544,7 @@ function App({ onOpenShop }) {
               />
 
               {filteredProducts.length === 0 && (
-                <p>Нет товаров, соответствующих фильтру или поиску. Попробуйте изменить условия.</p>
+                <p>{t('nothingFilter')}</p>
               )}
             </>
           )}

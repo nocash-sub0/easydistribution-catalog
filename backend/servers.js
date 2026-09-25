@@ -3,6 +3,7 @@ const cors = require('cors')
 const pool = require('./db')
 const jwt = require('jsonwebtoken')
 const bcrypt = require('bcryptjs')
+const crypto = require('crypto')
 
 const app = express()
 const PORT = process.env.PORT || 3000
@@ -107,7 +108,199 @@ app.post('/login', async (req, res) => {
   }
 })
 
+// --- Регистрация ---
+
+function issueClientToken(client) {
+  const token = jwt.sign({ role: 'client', clientId: client.id }, process.env.JWT_SECRET, { expiresIn: '7d' })
+  return { token, role: 'client', name: client.name }
+}
+
+app.post('/register', async (req, res) => {
+  try {
+    const name = String(req.body.name || '').trim()
+    const email = String(req.body.email || '').trim().toLowerCase()
+    const password = String(req.body.password || '')
+
+    if (!name) return res.status(400).json({ error: 'Numele este obligatoriu' })
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Email invalid' })
+    if (password.length < 8) return res.status(400).json({ error: 'Parola trebuie să aibă minim 8 caractere' })
+
+    const [existing] = await pool.query('SELECT id FROM clients WHERE email = ? OR login = ?', [email, email])
+    if (existing.length > 0) return res.status(409).json({ error: 'Acest email este deja înregistrat' })
+
+    const id = 'c-' + crypto.randomBytes(6).toString('hex')
+    const hash = await bcrypt.hash(password, 10)
+    await pool.query('INSERT INTO clients (id, name, login, email, password_hash) VALUES (?, ?, ?, ?, ?)', [
+      id,
+      name,
+      email,
+      email,
+      hash,
+    ])
+    res.status(201).json(issueClientToken({ id, name }))
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Eroare server' })
+  }
+})
+
+// Вход/регистрация через Google: проверяем ID-токен у Google
+app.post('/auth/google', async (req, res) => {
+  try {
+    if (!process.env.GOOGLE_CLIENT_ID) return res.status(501).json({ error: 'Google login is not configured' })
+
+    const info = await fetch(
+      'https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(req.body.credential || '')
+    ).then((r) => (r.ok ? r.json() : null))
+
+    if (!info || info.aud !== process.env.GOOGLE_CLIENT_ID || String(info.email_verified) !== 'true') {
+      return res.status(401).json({ error: 'Google token invalid' })
+    }
+
+    const email = info.email.toLowerCase()
+    const [rows] = await pool.query('SELECT id, name FROM clients WHERE email = ? OR login = ? LIMIT 1', [email, email])
+    if (rows.length > 0) return res.json(issueClientToken(rows[0]))
+
+    const id = 'c-' + crypto.randomBytes(6).toString('hex')
+    const name = info.name || email
+    await pool.query('INSERT INTO clients (id, name, login, email) VALUES (?, ?, ?, ?)', [id, name, email, email])
+    res.status(201).json(issueClientToken({ id, name }))
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Eroare server' })
+  }
+})
+
+// --- Заказы ---
+
+const PAYMENT_METHODS = ['cash', 'invoice']
+
+app.post('/orders', requireRole('client'), async (req, res) => {
+  try {
+    const { items, contactName, phone, address, comment, paymentMethod } = req.body
+    if (!PAYMENT_METHODS.includes(paymentMethod)) return res.status(400).json({ error: 'Metodă de plată invalidă' })
+    if (!contactName || !phone || !address) return res.status(400).json({ error: 'Completați datele de livrare' })
+    if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'Coșul este gol' })
+
+    // Цены пересчитываем на сервере по прайсу клиента — доверять цене из браузера нельзя
+    const catalog = await buildCatalog(req.user.clientId)
+    const byId = new Map(catalog.map((p) => [p.id, p]))
+
+    const lines = []
+    for (const item of items) {
+      const product = byId.get(Number(item.productId))
+      const qty = parseInt(item.qty)
+      if (!product || !Number.isInteger(qty) || qty < 1 || qty > 100000) {
+        return res.status(400).json({ error: 'Produs sau cantitate invalidă' })
+      }
+      if (product.saleUnitPriceWithVat === null) {
+        return res.status(400).json({ error: 'Produsul nu are preț: ' + product.name })
+      }
+      lines.push({ product, qty, unitPrice: product.saleUnitPriceWithVat })
+    }
+
+    const total = round2(lines.reduce((sum, l) => sum + l.qty * l.unitPrice, 0))
+
+    const conn = await pool.getConnection()
+    try {
+      await conn.beginTransaction()
+      const [result] = await conn.query(
+        `INSERT INTO orders (client_id, payment_method, contact_name, phone, address, comment, total)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [req.user.clientId, paymentMethod, contactName, phone, address, comment || null, total]
+      )
+      for (const l of lines) {
+        await conn.query(
+          `INSERT INTO order_items (order_id, product_id, product_name, sale_unit, qty, unit_price)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [result.insertId, l.product.id, l.product.name, l.product.saleUnit, l.qty, l.unitPrice]
+        )
+      }
+      await conn.commit()
+      res.status(201).json({ id: result.insertId, total })
+    } catch (err) {
+      await conn.rollback()
+      throw err
+    } finally {
+      conn.release()
+    }
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Eroare server' })
+  }
+})
+
+app.get('/orders', requireAdmin, async (req, res) => {
+  try {
+    const [orders] = await pool.query(
+      `SELECT o.id, o.status, o.payment_method AS paymentMethod, o.contact_name AS contactName, o.phone,
+              o.address, o.comment, o.total, o.created_at AS createdAt, c.name AS clientName
+       FROM orders o JOIN clients c ON c.id = o.client_id
+       ORDER BY o.id DESC LIMIT 200`
+    )
+    const ids = orders.map((o) => o.id)
+    const [items] = ids.length
+      ? await pool.query(
+          `SELECT order_id AS orderId, product_name AS name, sale_unit AS saleUnit, qty, unit_price AS unitPrice
+           FROM order_items WHERE order_id IN (?)`,
+          [ids]
+        )
+      : [[]]
+    res.json(
+      orders.map((o) => ({
+        ...o,
+        total: Number(o.total),
+        items: items.filter((i) => i.orderId === o.id).map((i) => ({ ...i, unitPrice: Number(i.unitPrice) })),
+      }))
+    )
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Eroare server' })
+  }
+})
+
 // --- Каталог ---
+
+async function buildCatalog(clientId) {
+  const [defaultLists] = await pool.query('SELECT id FROM price_lists WHERE is_default = TRUE LIMIT 1')
+  const defaultListId = defaultLists[0].id
+
+  let activeListId = defaultListId
+  if (clientId) {
+    const [assignments] = await pool.query(
+      'SELECT price_list_id FROM client_assignments WHERE client_id = ?',
+      [clientId]
+    )
+    if (assignments.length > 0) activeListId = assignments[0].price_list_id
+  }
+
+  const [rows] = await pool.query(
+    `SELECT p.*, active.price AS active_price, def.price AS default_price
+     FROM products p
+     LEFT JOIN price_list_items active ON active.product_id = p.id AND active.price_list_id = ?
+     LEFT JOIN price_list_items def ON def.product_id = p.id AND def.price_list_id = ?
+     ORDER BY p.id`,
+    [activeListId, defaultListId]
+  )
+
+  const isDefaultActive = activeListId === defaultListId
+
+  const catalog = rows.map((row) => {
+    const product = mapProductRow(row)
+    let basePrice, priceSource
+    if (!isDefaultActive && row.active_price !== null) {
+      basePrice = Number(row.active_price)
+      priceSource = 'client'
+    } else {
+      basePrice = row.default_price !== null ? Number(row.default_price) : null
+      priceSource = 'default'
+    }
+    const pricing = calculatePricing(row, basePrice)
+    return { ...product, priceSource, ...pricing }
+  })
+
+  return catalog
+}
 
 app.get('/catalog', async (req, res) => {
   try {
@@ -117,44 +310,7 @@ app.get('/catalog', async (req, res) => {
     if (user?.role === 'client') clientId = user.clientId
     else if (user?.role === 'admin') clientId = req.query.clientId || null
 
-    const [defaultLists] = await pool.query('SELECT id FROM price_lists WHERE is_default = TRUE LIMIT 1')
-    const defaultListId = defaultLists[0].id
-
-    let activeListId = defaultListId
-    if (clientId) {
-      const [assignments] = await pool.query(
-        'SELECT price_list_id FROM client_assignments WHERE client_id = ?',
-        [clientId]
-      )
-      if (assignments.length > 0) activeListId = assignments[0].price_list_id
-    }
-
-    const [rows] = await pool.query(
-      `SELECT p.*, active.price AS active_price, def.price AS default_price
-       FROM products p
-       LEFT JOIN price_list_items active ON active.product_id = p.id AND active.price_list_id = ?
-       LEFT JOIN price_list_items def ON def.product_id = p.id AND def.price_list_id = ?
-       ORDER BY p.id`,
-      [activeListId, defaultListId]
-    )
-
-    const isDefaultActive = activeListId === defaultListId
-
-    const catalog = rows.map((row) => {
-      const product = mapProductRow(row)
-      let basePrice, priceSource
-      if (!isDefaultActive && row.active_price !== null) {
-        basePrice = Number(row.active_price)
-        priceSource = 'client'
-      } else {
-        basePrice = row.default_price !== null ? Number(row.default_price) : null
-        priceSource = 'default'
-      }
-      const pricing = calculatePricing(row, basePrice)
-      return { ...product, priceSource, ...pricing }
-    })
-
-    res.json(catalog)
+    res.json(await buildCatalog(clientId))
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: 'Eroare server' })

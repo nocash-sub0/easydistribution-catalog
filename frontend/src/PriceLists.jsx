@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { apiFetch } from './api'
+import { useLang } from './i18n'
 
 function formatMDL(value) {
   if (value === null || value === undefined) return '—'
@@ -7,6 +8,7 @@ function formatMDL(value) {
 }
 
 export default function PriceLists() {
+  const { t } = useLang()
   const [priceLists, setPriceLists] = useState([])
   const [selectedListId, setSelectedListId] = useState(null)
   const [items, setItems] = useState([])
@@ -79,7 +81,7 @@ export default function PriceLists() {
   }
 
   const handleDelete = async (id) => {
-    if (!confirm('Удалить этот прайс-лист? Клиенты вернутся на дефолтный.')) return
+    if (!confirm(t('confirmDeleteList'))) return
     const res = await apiFetch(`/price-lists/${id}`, { method: 'DELETE' })
     const data = await res.json()
     if (!res.ok) {
@@ -163,11 +165,11 @@ export default function PriceLists() {
 
   return (
     <div style={{ padding: '20px', fontFamily: 'sans-serif' }}>
-      <h1>Списки цен</h1>
+      <h1>{t('adminPriceLists')}</h1>
 
       <div style={{ display: 'flex', gap: '30px' }}>
         <div style={{ minWidth: '250px' }}>
-          <h3>Прайс-листы</h3>
+          <h3>{t('priceListsHeading')}</h3>
           <ul style={{ listStyle: 'none', padding: 0 }}>
             {priceLists.map((pl) => (
               <li
@@ -188,7 +190,7 @@ export default function PriceLists() {
                   </span>
                 ) : (
                   <span onClick={() => setSelectedListId(pl.id)}>
-                    {pl.name} {pl.isDefault && '(implicit)'} — {pl.clientCount} клиент(ов)
+                    {pl.name} {pl.isDefault && '(implicit)'} — {pl.clientCount} {t('clientsCount')}
                   </span>
                 )}
 
@@ -211,22 +213,22 @@ export default function PriceLists() {
 
           <div style={{ marginTop: '10px' }}>
             <input
-              placeholder="Название нового листа"
+              placeholder={t('newListPh')}
               value={newListName}
               onChange={(e) => setNewListName(e.target.value)}
             />
-            <button onClick={handleCreateList}>+ Создать</button>
+            <button onClick={handleCreateList}>{t('createList')}</button>
           </div>
         </div>
 
         <div style={{ flex: 1 }}>
-          {!selectedListId && <p>Выбери прайс-лист слева, чтобы увидеть детали.</p>}
+          {!selectedListId && <p>{t('selectList')}</p>}
 
           {selectedListId && (
             <>
-              <h3>Привязка клиентов</h3>
+              <h3>{t('bindClients')}</h3>
               <input
-                placeholder="Поиск клиента..."
+                placeholder={t('clientSearchPh')}
                 value={clientSearch}
                 onChange={(e) => setClientSearch(e.target.value)}
               />
@@ -248,19 +250,19 @@ export default function PriceLists() {
                       />{' '}
                       {c.name}{' '}
                       <small style={{ color: '#888' }}>
-                        (сейчас: {priceLists.find((pl) => pl.id === c.priceListId)?.name || '—'})
+                        ({t('currently')}: {priceLists.find((pl) => pl.id === c.priceListId)?.name || '—'})
                       </small>
                     </label>
                   </div>
                 ))}
               </div>
               <button onClick={handleAssignClients} disabled={selectedClientIds.length === 0}>
-                Привязать выбранных ({selectedClientIds.length}) к этому листу
+                {t('bindSelected', { n: selectedClientIds.length })}
               </button>
 
-              <h3 style={{ marginTop: '24px' }}>Скидка на категорию</h3>
+              <h3 style={{ marginTop: '24px' }}>{t('categoryDiscount')}</h3>
               <select value={discountCategory} onChange={(e) => setDiscountCategory(e.target.value)}>
-                <option value="">Выбери категорию</option>
+                <option value="">{t('chooseCategory')}</option>
                 {categories.map((cat) => (
                   <option key={cat} value={cat}>
                     {cat}
@@ -269,22 +271,22 @@ export default function PriceLists() {
               </select>{' '}
               <input
                 type="number"
-                placeholder="% скидки"
+                placeholder={t('discountPh')}
                 value={discountPercent}
                 onChange={(e) => setDiscountPercent(e.target.value)}
                 style={{ width: '80px' }}
               />{' '}
-              <button onClick={handlePreviewDiscount}>Превью</button>
+              <button onClick={handlePreviewDiscount}>{t('previewBtn')}</button>
 
               {discountPreview && (
                 <div style={{ border: '1px solid #ccc', padding: '10px', marginTop: '10px' }}>
-                  <h4>Превью изменений</h4>
+                  <h4>{t('previewChanges')}</h4>
                   <table border="1" cellPadding="6" style={{ borderCollapse: 'collapse' }}>
                     <thead>
                       <tr>
-                        <th>Товар</th>
-                        <th>Было</th>
-                        <th>Станет</th>
+                        <th>{t('colProduct')}</th>
+                        <th>{t('colWas')}</th>
+                        <th>{t('colBecomes')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -298,34 +300,34 @@ export default function PriceLists() {
                     </tbody>
                   </table>
                   <button onClick={handleApplyDiscount} style={{ marginTop: '8px' }}>
-                    Подтвердить и сохранить
+                    {t('confirmSave')}
                   </button>{' '}
-                  <button onClick={() => setDiscountPreview(null)}>Отмена</button>
+                  <button onClick={() => setDiscountPreview(null)}>{t('cancel')}</button>
                 </div>
               )}
 
               <h3 style={{ marginTop: '24px' }}>
-                Сравнение цен{' '}
+                {t('priceCompare')}{' '}
                 <label style={{ fontWeight: 'normal', fontSize: '14px' }}>
                   <input
                     type="checkbox"
                     checked={includeVat}
                     onChange={(e) => setIncludeVat(e.target.checked)}
                   />{' '}
-                  показывать с TVA
+                  {t('showWithVat')}
                 </label>
               </h3>
 
               {loadingItems ? (
-                <p>Загрузка...</p>
+                <p>{t('loadingShort')}</p>
               ) : (
                 <table border="1" cellPadding="8" style={{ borderCollapse: 'collapse', width: '100%' }}>
                   <thead>
                     <tr>
-                      <th>Товар</th>
-                      <th>Категория</th>
-                      <th>Цена</th>
-                      <th>Отличие от базовой</th>
+                      <th>{t('colProduct')}</th>
+                      <th>{t('colCategory')}</th>
+                      <th>{t('colPrice')}</th>
+                      <th>{t('colDiff')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -346,7 +348,7 @@ export default function PriceLists() {
                         <td>
                           {item.isOverridden
                             ? `${item.diffAmount > 0 ? '+' : ''}${item.diffAmount} MDL (${item.diffPercent}%)`
-                            : '— (как базовая)'}
+                            : t('asBase')}
                         </td>
                       </tr>
                     ))}

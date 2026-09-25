@@ -48,7 +48,7 @@ function ProductCard({ product, qty, onChangeQty }) {
   )
 }
 
-export default function Storefront({ session, onOpenLogin, onOpenAdmin }) {
+export default function Storefront({ session, cart, onChangeQty, onCheckout, onOpenLogin, onOpenAdmin }) {
   const { t } = useLang()
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
@@ -58,7 +58,6 @@ export default function Storefront({ session, onOpenLogin, onOpenAdmin }) {
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [category, setCategory] = useState('all')
 
-  const [cart, setCart] = useState({})
   const [showCart, setShowCart] = useState(false)
 
   const fetchCatalog = () => {
@@ -98,14 +97,7 @@ export default function Storefront({ session, onOpenLogin, onOpenAdmin }) {
     [products, category, debouncedSearch]
   )
 
-  const changeQty = (id, qty) => {
-    setCart((prev) => {
-      const next = { ...prev }
-      if (qty <= 0) delete next[id]
-      else next[id] = qty
-      return next
-    })
-  }
+  const changeQty = onChangeQty
 
   const cartItems = products.filter((p) => cart[p.id])
   const cartCount = cartItems.reduce((sum, p) => sum + cart[p.id], 0)
@@ -205,6 +197,11 @@ export default function Storefront({ session, onOpenLogin, onOpenAdmin }) {
                 <p style={{ textAlign: 'right', fontWeight: 'bold', fontSize: '18px' }}>
                   {t('total')}: {formatMDL(cartTotal)}
                 </p>
+                <div style={{ textAlign: 'right' }}>
+                  <button className="btn btn-yellow" onClick={onCheckout}>
+                    {t('checkout')}
+                  </button>
+                </div>
               </>
             )}
           </div>
