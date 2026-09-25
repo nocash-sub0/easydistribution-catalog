@@ -48,7 +48,10 @@ function ProductCard({ product, qty, onChangeQty }) {
   )
 }
 
-export default function Storefront({ session, cart, onChangeQty, onCheckout, onOpenLogin, onOpenAdmin }) {
+// Сколько карточек показывать за раз: 800 карточек сразу заметно тормозят на телефонах
+const PAGE_SIZE = 48
+
+export default function Storefront({ session, cart, onChangeQty, onCheckout, onOpenLogin, onOpenAdmin, onOpenMyOrders }) {
   const { t, lang, unit } = useLang()
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
@@ -102,6 +105,12 @@ export default function Storefront({ session, cart, onChangeQty, onCheckout, onO
     [products, category, debouncedSearch]
   )
 
+  // «Показать ещё»: при смене категории или поиска снова показываем первую страницу
+  const filterKey = `${lang}|${category}|${debouncedSearch}`
+  const [more, setMore] = useState({ key: '', count: PAGE_SIZE })
+  const limit = more.key === filterKey ? more.count : PAGE_SIZE
+  const shown = filtered.slice(0, limit)
+
   const changeQty = onChangeQty
 
   const cartItems = products.filter((p) => cart[p.id])
@@ -134,9 +143,13 @@ export default function Storefront({ session, cart, onChangeQty, onCheckout, onO
             {session ? (
               <>
                 <span className="user-name">{session.name}</span>
-                {session.role === 'admin' && (
+                {session.role === 'admin' ? (
                   <button className="btn btn-ghost" onClick={onOpenAdmin}>
                     {t('adminPanel')}
+                  </button>
+                ) : (
+                  <button className="btn btn-ghost" onClick={onOpenMyOrders}>
+                    {t('myOrders')}
                   </button>
                 )}
                 <button className="btn btn-ghost" onClick={logout}>
@@ -234,10 +247,18 @@ export default function Storefront({ session, cart, onChangeQty, onCheckout, onO
         {!error && !loading && filtered.length === 0 && <p>{t('nothingFound')}</p>}
 
         <div className="grid">
-          {filtered.map((product) => (
+          {shown.map((product) => (
             <ProductCard key={product.id} product={product} qty={cart[product.id] || 0} onChangeQty={changeQty} />
           ))}
         </div>
+
+        {shown.length < filtered.length && (
+          <div className="show-more">
+            <button className="btn btn-yellow" onClick={() => setMore({ key: filterKey, count: limit + PAGE_SIZE })}>
+              {t('showMore', { n: shown.length, total: filtered.length })}
+            </button>
+          </div>
+        )}
       </main>
 
       <footer className="footer">

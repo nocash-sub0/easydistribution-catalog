@@ -45,6 +45,8 @@ const SERVER_ERRORS = {
   'Nu poți șterge lista implicită': 'errDefaultList',
   'Procent invalid': 'errPercent',
   'Lista nu a fost găsită': 'errListNotFound',
+  'Prea multe încercări. Încercați mai târziu': 'errRateLimit',
+  'Status invalid': 'errStatus',
 }
 
 // Единицы измерения товаров: переводим только известные, остальные показываем как есть

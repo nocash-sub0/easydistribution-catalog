@@ -7,6 +7,8 @@ const crypto = require('crypto')
 const { autoTranslateProduct } = require('./translate')
 
 const app = express()
+// Render стоит за прокси: берём реальный IP клиента из X-Forwarded-For
+app.set('trust proxy', 1)
 const PORT = process.env.PORT || 3000
 
 app.use(cors())
@@ -120,8 +122,35 @@ function requireRole(role) {
 
 const requireAdmin = requireRole('admin')
 
+// Защита от подбора пароля: не больше `max` запросов с одного IP за окно `windowMs`
+function rateLimit({ max, windowMs }) {
+  const hits = new Map()
+  setInterval(() => {
+    const now = Date.now()
+    for (const [ip, entry] of hits) if (entry.reset < now) hits.delete(ip)
+  }, windowMs).unref()
+
+  return (req, res, next) => {
+    const now = Date.now()
+    let entry = hits.get(req.ip)
+    if (!entry || entry.reset < now) {
+      entry = { count: 0, reset: now + windowMs }
+      hits.set(req.ip, entry)
+    }
+    entry.count++
+    if (entry.count > max) {
+      res.set('Retry-After', String(Math.ceil((entry.reset - now) / 1000)))
+      return res.status(429).json({ error: 'Prea multe încercări. Încercați mai târziu' })
+    }
+    next()
+  }
+}
+
+const loginLimiter = rateLimit({ max: 20, windowMs: 15 * 60 * 1000 })
+const registerLimiter = rateLimit({ max: 10, windowMs: 60 * 60 * 1000 })
+
 // Единый вход: логин админа из .env либо логин клиента из таблицы clients
-app.post('/login', async (req, res) => {
+app.post('/login', loginLimiter, async (req, res) => {
   try {
     const { username, password } = req.body
     if (!username || !password) return res.status(400).json({ error: 'Introduceți login și parola' })
@@ -151,7 +180,7 @@ function issueClientToken(client) {
   return { token, role: 'client', name: client.name }
 }
 
-app.post('/register', async (req, res) => {
+app.post('/register', registerLimiter, async (req, res) => {
   try {
     const name = String(req.body.name || '').trim()
     const email = String(req.body.email || '').trim().toLowerCase()
@@ -182,7 +211,7 @@ app.post('/register', async (req, res) => {
 })
 
 // Вход/регистрация через Google: проверяем ID-токен у Google
-app.post('/auth/google', async (req, res) => {
+app.post('/auth/google', loginLimiter, async (req, res) => {
   try {
     if (!process.env.GOOGLE_CLIENT_ID) return res.status(501).json({ error: 'Google login is not configured' })
 
@@ -333,29 +362,59 @@ app.get('/orders/:id', requireRole('client'), async (req, res) => {
   }
 })
 
+// Заказы с позициями; clientId = null — все заказы (для админа)
+async function loadOrders(clientId) {
+  const [orders] = await pool.query(
+    `SELECT o.id, o.status, o.payment_method AS paymentMethod, o.contact_name AS contactName, o.phone,
+            o.address, o.comment, o.total, o.created_at AS createdAt, c.name AS clientName
+     FROM orders o JOIN clients c ON c.id = o.client_id
+     ${clientId ? 'WHERE o.client_id = ?' : ''}
+     ORDER BY o.id DESC LIMIT 200`,
+    clientId ? [clientId] : []
+  )
+  const ids = orders.map((o) => o.id)
+  const [items] = ids.length
+    ? await pool.query(
+        `SELECT order_id AS orderId, product_name AS name, sale_unit AS saleUnit, qty, unit_price AS unitPrice
+         FROM order_items WHERE order_id IN (?)`,
+        [ids]
+      )
+    : [[]]
+  return orders.map((o) => ({
+    ...o,
+    total: Number(o.total),
+    items: items.filter((i) => i.orderId === o.id).map((i) => ({ ...i, unitPrice: Number(i.unitPrice) })),
+  }))
+}
+
+// «Мои заказы» — только заказы вошедшего клиента
+app.get('/my/orders', requireRole('client'), async (req, res) => {
+  try {
+    res.json(await loadOrders(req.user.clientId))
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Eroare server' })
+  }
+})
+
 app.get('/orders', requireAdmin, async (req, res) => {
   try {
-    const [orders] = await pool.query(
-      `SELECT o.id, o.status, o.payment_method AS paymentMethod, o.contact_name AS contactName, o.phone,
-              o.address, o.comment, o.total, o.created_at AS createdAt, c.name AS clientName
-       FROM orders o JOIN clients c ON c.id = o.client_id
-       ORDER BY o.id DESC LIMIT 200`
-    )
-    const ids = orders.map((o) => o.id)
-    const [items] = ids.length
-      ? await pool.query(
-          `SELECT order_id AS orderId, product_name AS name, sale_unit AS saleUnit, qty, unit_price AS unitPrice
-           FROM order_items WHERE order_id IN (?)`,
-          [ids]
-        )
-      : [[]]
-    res.json(
-      orders.map((o) => ({
-        ...o,
-        total: Number(o.total),
-        items: items.filter((i) => i.orderId === o.id).map((i) => ({ ...i, unitPrice: Number(i.unitPrice) })),
-      }))
-    )
+    res.json(await loadOrders(null))
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Eroare server' })
+  }
+})
+
+const ORDER_STATUSES = ['new', 'pending_payment', 'paid', 'confirmed', 'shipped', 'delivered', 'cancelled']
+
+app.patch('/orders/:id/status', requireAdmin, async (req, res) => {
+  try {
+    const { status } = req.body
+    if (!ORDER_STATUSES.includes(status)) return res.status(400).json({ error: 'Status invalid' })
+    const [result] = await pool.query('UPDATE orders SET status = ? WHERE id = ?', [status, parseInt(req.params.id)])
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'Comanda nu a fost găsită' })
+    res.json({ success: true })
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: 'Eroare server' })

@@ -623,3 +623,44 @@ button {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- Мои заказы, «Показать ещё» ---------- */
+
+.show-more {
+  text-align: center;
+  margin-top: 24px;
+}
+
+.order-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.status-badge {
+  margin-left: auto;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  background: #e8edf2;
+  color: var(--blue);
+}
+
+.status-badge.st-paid,
+.status-badge.st-delivered {
+  background: #e3f1ec;
+  color: #2f6f5f;
+}
+
+.status-badge.st-cancelled {
+  background: #fbe9e9;
+  color: #b42318;
+}

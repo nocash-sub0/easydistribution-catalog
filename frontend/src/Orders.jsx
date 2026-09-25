@@ -2,11 +2,15 @@ import { useState, useEffect } from 'react'
 import { apiFetch } from './api'
 import { useLang } from './i18n'
 
+const STATUSES = ['new', 'pending_payment', 'paid', 'confirmed', 'shipped', 'delivered', 'cancelled']
+
 export default function Orders() {
-  const { t, unit } = useLang()
+  const { t, tr, unit } = useLang()
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [savingId, setSavingId] = useState(null)
 
   useEffect(() => {
     apiFetch('/orders')
@@ -20,15 +24,49 @@ export default function Orders() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const changeStatus = async (id, status) => {
+    setSavingId(id)
+    try {
+      const res = await apiFetch(`/orders/${id}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(tr(data?.error) || t('serverError'))
+      setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, status } : o)))
+    } catch (err) {
+      alert(err.message)
+    } finally {
+      setSavingId(null)
+    }
+  }
+
+  const visible = statusFilter === 'all' ? orders : orders.filter((o) => o.status === statusFilter)
+
   return (
     <div style={{ padding: '20px' }}>
       <h1>{t('ordersTitle')}</h1>
 
+      {orders.length > 0 && (
+        <label style={{ display: 'block', marginBottom: '12px' }}>
+          {t('colStatus')}:{' '}
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <option value="all">{t('allStatuses')}</option>
+            {STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {t('st_' + s)} ({orders.filter((o) => o.status === s).length})
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+
       {loading && <p>{t('loadingShort')}</p>}
       {error && <p style={{ color: 'red' }}>{error}</p>}
-      {!loading && !error && orders.length === 0 && <p>{t('noOrders')}</p>}
+      {!loading && !error && visible.length === 0 && <p>{t('noOrders')}</p>}
 
-      {orders.length > 0 && (
+      {visible.length > 0 && (
         <div style={{ overflowX: 'auto' }}>
           <table border="1" cellPadding="8" style={{ borderCollapse: 'collapse', width: '100%', background: 'white' }}>
             <thead>
@@ -44,7 +82,7 @@ export default function Orders() {
               </tr>
             </thead>
             <tbody>
-              {orders.map((o) => (
+              {visible.map((o) => (
                 <tr key={o.id} style={{ verticalAlign: 'top' }}>
                   <td>{o.id}</td>
                   <td>{new Date(o.createdAt).toLocaleString()}</td>
@@ -63,7 +101,15 @@ export default function Orders() {
                     )}
                   </td>
                   <td>{t('pay_' + o.paymentMethod)}</td>
-                  <td>{t('st_' + o.status)}</td>
+                  <td>
+                    <select value={o.status} disabled={savingId === o.id} onChange={(e) => changeStatus(o.id, e.target.value)}>
+                      {STATUSES.map((s) => (
+                        <option key={s} value={s}>
+                          {t('st_' + s)}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
                   <td>
                     {o.items.map((i, idx) => (
                       <div key={idx}>
