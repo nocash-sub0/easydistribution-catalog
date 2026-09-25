@@ -3,6 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import Papa from 'papaparse'
 import PriceLists from './PriceLists'
 import { apiFetch, logout } from './api'
+import { APP_NAME, LangSwitch, useLang } from './i18n'
 
 function SkeletonRow() {
   return (
@@ -118,6 +119,7 @@ function VirtualizedTable({ products, editingId, setEditingId, handlePriceSave }
 }
 
 function App({ onOpenShop }) {
+  const { t } = useLang()
   const [activeTab, setActiveTab] = useState('catalog')
 
   const [products, setProducts] = useState([])
@@ -317,21 +319,20 @@ function App({ onOpenShop }) {
 
   return (
     <div>
-      <div style={{ padding: '20px 20px 0 20px', fontFamily: 'sans-serif' }}>
-        <button
-          onClick={() => setActiveTab('catalog')}
-          style={{ fontWeight: activeTab === 'catalog' ? 'bold' : 'normal' }}
-        >
-          Каталог
-        </button>{' '}
-        <button
-          onClick={() => setActiveTab('pricelists')}
-          style={{ fontWeight: activeTab === 'pricelists' ? 'bold' : 'normal' }}
-        >
-          Списки цен
-        </button>{' '}
-        <button onClick={onOpenShop}>К магазину</button>{' '}
-        <button onClick={logout}>Выйти</button>
+      <div className="admin-bar">
+        <div className="admin-bar-inner">
+          <div className="logo">{APP_NAME}</div>
+          <button className={'tab' + (activeTab === 'catalog' ? ' active' : '')} onClick={() => setActiveTab('catalog')}>
+            {t('adminCatalog')}
+          </button>
+          <button className={'tab' + (activeTab === 'pricelists' ? ' active' : '')} onClick={() => setActiveTab('pricelists')}>
+            {t('adminPriceLists')}
+          </button>
+          <div className="spacer" />
+          <LangSwitch />
+          <button className="btn btn-ghost" onClick={onOpenShop}>{t('toShop')}</button>
+          <button className="btn btn-yellow" onClick={logout}>{t('logout')}</button>
+        </div>
       </div>
 
       {activeTab === 'pricelists' ? (

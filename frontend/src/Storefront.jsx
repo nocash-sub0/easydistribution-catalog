@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { apiFetch, logout } from './api'
+import { APP_NAME, LangSwitch, useLang } from './i18n'
 
 function formatMDL(value) {
   if (value === null || value === undefined) return '—'
@@ -7,54 +8,48 @@ function formatMDL(value) {
 }
 
 function ProductCard({ product, qty, onChangeQty }) {
+  const { t } = useLang()
   const hasPrice = product.saleUnitPriceWithVat !== null
   return (
-    <div style={{ background: 'white', borderRadius: '10px', padding: '14px', boxShadow: '0 1px 6px rgba(0,0,0,0.08)', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ height: '110px', background: '#eef2f7', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '40px', color: '#9aa5b5' }}>
-        {product.name.charAt(0).toUpperCase()}
+    <div className="card">
+      {product.priceSource === 'client' && <span className="tag-special">{t('specialPrice')}</span>}
+      <div className="card-img">{product.name.charAt(0).toUpperCase()}</div>
+      <div className="card-cat">
+        {product.category} · {product.code}
       </div>
-      <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '10px' }}>{product.category} · {product.code}</div>
-      <div style={{ fontWeight: 'bold', margin: '4px 0 8px', flexGrow: 1 }}>{product.name}</div>
+      <div className="card-name">{product.name}</div>
 
       {hasPrice ? (
         <>
-          <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#1d4ed8' }}>
-            {formatMDL(product.saleUnitPriceWithVat)}
-            <span style={{ fontSize: '12px', fontWeight: 'normal', color: '#6b7280' }}> / {product.saleUnit}</span>
+          <div className="price-main">
+            {formatMDL(product.saleUnitPriceWithVat)} <small>/ {product.saleUnit}</small>
           </div>
-          <div style={{ fontSize: '12px', color: '#6b7280' }}>
-            {formatMDL(product.priceWithVat)} / {product.baseUnit} · в {product.saleUnit} {product.saleUnitFactor} {product.baseUnit} · TVA {product.vatRate}%
+          <div className="price-sub">
+            {formatMDL(product.priceWithVat)} / {product.baseUnit} · {t('inPack')} {product.saleUnitFactor}{' '}
+            {product.baseUnit} · {t('vatIncluded')} {product.vatRate}%
           </div>
-          {product.priceSource === 'client' && (
-            <div style={{ fontSize: '11px', color: '#15803d', marginTop: '4px' }}>Ваша специальная цена</div>
-          )}
         </>
       ) : (
-        <div style={{ color: '#6b7280' }}>Цена по запросу</div>
+        <div className="price-sub">{t('priceOnRequest')}</div>
       )}
 
-      <div style={{ marginTop: '10px' }}>
-        {qty > 0 ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}>
-            <button onClick={() => onChangeQty(product.id, qty - 1)}>−</button>
-            <strong>{qty}</strong>
-            <button onClick={() => onChangeQty(product.id, qty + 1)}>+</button>
-          </div>
-        ) : (
-          <button
-            disabled={!hasPrice}
-            onClick={() => onChangeQty(product.id, 1)}
-            style={{ width: '100%', padding: '8px', background: hasPrice ? '#2563eb' : '#cbd5e1', color: 'white', border: 'none', borderRadius: '6px', cursor: hasPrice ? 'pointer' : 'default' }}
-          >
-            В корзину
-          </button>
-        )}
-      </div>
+      {qty > 0 ? (
+        <div className="qty">
+          <button onClick={() => onChangeQty(product.id, qty - 1)}>−</button>
+          <strong>{qty}</strong>
+          <button onClick={() => onChangeQty(product.id, qty + 1)}>+</button>
+        </div>
+      ) : (
+        <button className="btn btn-yellow" disabled={!hasPrice} onClick={() => onChangeQty(product.id, 1)}>
+          {t('addToCart')}
+        </button>
+      )}
     </div>
   )
 }
 
 export default function Storefront({ session, onOpenLogin, onOpenAdmin }) {
+  const { t } = useLang()
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -71,7 +66,7 @@ export default function Storefront({ session, onOpenLogin, onOpenAdmin }) {
     setError(null)
     apiFetch('/catalog')
       .then((res) => {
-        if (!res.ok) throw new Error('Сервер вернул ошибку')
+        if (!res.ok) throw new Error('HTTP ' + res.status)
         return res.json()
       })
       .then((data) => {
@@ -117,45 +112,88 @@ export default function Storefront({ session, onOpenLogin, onOpenAdmin }) {
   const cartTotal = cartItems.reduce((sum, p) => sum + cart[p.id] * (p.saleUnitPriceWithVat || 0), 0)
 
   return (
-    <div style={{ fontFamily: 'sans-serif', minHeight: '100vh', background: '#f3f4f6' }}>
-      <header style={{ background: 'white', padding: '12px 24px', display: 'flex', alignItems: 'center', gap: '16px', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', position: 'sticky', top: 0, zIndex: 10, flexWrap: 'wrap' }}>
-        <h2 style={{ margin: 0 }}>EasyDistribution</h2>
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Поиск товара..."
-          style={{ flexGrow: 1, minWidth: '180px', padding: '9px', fontSize: '15px' }}
-        />
-        <button onClick={() => setShowCart(!showCart)}>
-          Корзина ({cartCount}) · {formatMDL(cartTotal)}
-        </button>
-        {session ? (
-          <>
-            <span style={{ color: '#4b5563' }}>{session.name}</span>
-            {session.role === 'admin' && <button onClick={onOpenAdmin}>Админ-панель</button>}
-            <button onClick={logout}>Выйти</button>
-          </>
-        ) : (
-          <button onClick={onOpenLogin} style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', padding: '8px 16px', cursor: 'pointer' }}>
-            Войти
-          </button>
-        )}
+    <div>
+      <div className="topbar">
+        <div className="topbar-inner">
+          <span>{t('footer')}</span>
+          <LangSwitch />
+        </div>
+      </div>
+
+      <header className="header">
+        <div className="header-inner">
+          <div className="logo" onClick={() => { setCategory('all'); setSearch('') }}>
+            {APP_NAME}
+          </div>
+
+          <div className="search">
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('search')} />
+            <button className="search-btn" tabIndex={-1} aria-hidden="true">
+              ⌕
+            </button>
+          </div>
+
+          <div className="header-actions">
+            {session ? (
+              <>
+                <span className="user-name">{session.name}</span>
+                {session.role === 'admin' && (
+                  <button className="btn btn-ghost" onClick={onOpenAdmin}>
+                    {t('adminPanel')}
+                  </button>
+                )}
+                <button className="btn btn-ghost" onClick={logout}>
+                  {t('logout')}
+                </button>
+              </>
+            ) : (
+              <button className="btn btn-ghost" onClick={onOpenLogin}>
+                {t('login')}
+              </button>
+            )}
+            <button className="btn btn-yellow" onClick={() => setShowCart(!showCart)}>
+              {t('cart')}
+              <span className="cart-badge">{cartCount}</span>
+            </button>
+          </div>
+        </div>
       </header>
 
-      <div style={{ padding: '20px 24px' }}>
+      <nav className="catnav">
+        <div className="catnav-inner">
+          {['all', ...categories].map((cat) => (
+            <button key={cat} className={category === cat ? 'active' : ''} onClick={() => setCategory(cat)}>
+              {cat === 'all' ? t('allCategories') : cat}
+            </button>
+          ))}
+        </div>
+      </nav>
+
+      <main className="page">
+        {!session && (
+          <div className="banner">
+            <strong>{t('guestBanner')}</strong>
+            <button className="btn btn-yellow" onClick={onOpenLogin}>
+              {t('login')}
+            </button>
+          </div>
+        )}
+
         {showCart && (
-          <div style={{ background: 'white', borderRadius: '10px', padding: '16px', marginBottom: '20px', boxShadow: '0 1px 6px rgba(0,0,0,0.08)' }}>
-            <h3 style={{ marginTop: 0 }}>Корзина</h3>
+          <div className="panel">
+            <h3>{t('cart')}</h3>
             {cartItems.length === 0 ? (
-              <p>Корзина пуста</p>
+              <p>{t('cartEmpty')}</p>
             ) : (
               <>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <tbody>
                     {cartItems.map((p) => (
-                      <tr key={p.id} style={{ borderBottom: '1px solid #eee' }}>
-                        <td style={{ padding: '6px 0' }}>{p.name}</td>
-                        <td>{cart[p.id]} {p.saleUnit}</td>
+                      <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ padding: '8px 0' }}>{p.name}</td>
+                        <td>
+                          {cart[p.id]} {p.saleUnit}
+                        </td>
                         <td style={{ textAlign: 'right' }}>{formatMDL(cart[p.id] * p.saleUnitPriceWithVat)}</td>
                         <td style={{ textAlign: 'right' }}>
                           <button onClick={() => changeQty(p.id, 0)}>✕</button>
@@ -164,48 +202,47 @@ export default function Storefront({ session, onOpenLogin, onOpenAdmin }) {
                     ))}
                   </tbody>
                 </table>
-                <p style={{ textAlign: 'right', fontWeight: 'bold' }}>Итого с TVA: {formatMDL(cartTotal)}</p>
+                <p style={{ textAlign: 'right', fontWeight: 'bold', fontSize: '18px' }}>
+                  {t('total')}: {formatMDL(cartTotal)}
+                </p>
               </>
             )}
           </div>
         )}
 
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '20px' }}>
-          {['all', ...categories].map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setCategory(cat)}
-              style={{
-                padding: '6px 14px',
-                borderRadius: '16px',
-                border: '1px solid #cbd5e1',
-                background: category === cat ? '#2563eb' : 'white',
-                color: category === cat ? 'white' : '#111',
-                cursor: 'pointer',
-              }}
-            >
-              {cat === 'all' ? 'Все' : cat}
-            </button>
-          ))}
-        </div>
-
         {error && (
-          <div style={{ padding: '20px', border: '1px solid red', borderRadius: '4px', background: 'white' }}>
-            <p style={{ color: 'red' }}>Ошибка загрузки: {error}</p>
-            <button onClick={fetchCatalog}>Повторить попытку</button>
+          <div className="error-box">
+            <p style={{ color: '#dc2626' }}>
+              {t('loadError')}: {error}
+            </p>
+            <button className="btn btn-yellow" onClick={fetchCatalog}>
+              {t('retry')}
+            </button>
           </div>
         )}
 
-        {!error && loading && <p>Загрузка каталога...</p>}
+        {!error && loading && <p>{t('loading')}</p>}
 
-        {!error && !loading && filtered.length === 0 && <p>Ничего не найдено.</p>}
+        {!error && !loading && (
+          <p className="results-line">
+            {t('productsCount')}: {filtered.length}
+          </p>
+        )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: '16px' }}>
+        {!error && !loading && filtered.length === 0 && <p>{t('nothingFound')}</p>}
+
+        <div className="grid">
           {filtered.map((product) => (
             <ProductCard key={product.id} product={product} qty={cart[product.id] || 0} onChangeQty={changeQty} />
           ))}
         </div>
-      </div>
+      </main>
+
+      <footer className="footer">
+        <div className="page" style={{ padding: 0 }}>
+          © {new Date().getFullYear()} {APP_NAME} · {t('footer')}
+        </div>
+      </footer>
     </div>
   )
 }

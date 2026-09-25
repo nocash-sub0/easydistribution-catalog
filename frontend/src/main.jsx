@@ -5,6 +5,7 @@ import App from './App.jsx'
 import Login from './Login.jsx'
 import Storefront from './Storefront.jsx'
 import { getSession } from './api'
+import { LangProvider } from './i18n'
 
 function Root() {
   const [session, setSession] = useState(getSession)
@@ -35,6 +36,8 @@ function Root() {
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <Root />
+    <LangProvider>
+      <Root />
+    </LangProvider>
   </StrictMode>,
 )
