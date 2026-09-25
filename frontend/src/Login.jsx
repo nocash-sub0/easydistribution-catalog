@@ -17,7 +17,8 @@ export default function Login({ onLogin, onClose }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       })
-      const data = await res.json()
+      const data = await res.json().catch(() => null)
+      if (!data) throw new Error('Сервер недоступен или ещё обновляется. Попробуйте через минуту')
       if (!res.ok) throw new Error(data.error || 'Ошибка входа')
 
       const session = { role: data.role, token: data.token, name: data.name }

@@ -83,7 +83,7 @@ function requireRole(role) {
 
 const requireAdmin = requireRole('admin')
 
-// Единый вход: логин админа из .env либо id/название клиента
+// Единый вход: логин админа из .env либо логин клиента из таблицы clients
 app.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body
@@ -94,7 +94,7 @@ app.post('/login', async (req, res) => {
       return res.json({ token, role: 'admin', name: 'Администратор' })
     }
 
-    const [rows] = await pool.query('SELECT * FROM clients WHERE id = ? OR LOWER(name) = LOWER(?) LIMIT 1', [username, username])
+    const [rows] = await pool.query('SELECT * FROM clients WHERE login = ? LIMIT 1', [username.trim().toLowerCase()])
     const client = rows[0]
     const match = client && client.password_hash && (await bcrypt.compare(password, client.password_hash))
     if (!match) return res.status(401).json({ error: 'Login sau parolă incorectă' })
