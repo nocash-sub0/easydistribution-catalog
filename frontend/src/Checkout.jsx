@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { apiFetch, logout } from './api'
+import { apiFetch, logout, siteUrl } from './api'
 import { LangSwitch, useLang } from './i18n'
 import Logo from './Logo'
 
@@ -70,6 +70,7 @@ export default function Checkout({ session, cart, onBack, onDone, onOpenLogin })
           comment,
           paymentMethod,
           lang, // письмо-подтверждение придёт на языке сайта
+          siteUrl: siteUrl(), // сюда Stripe вернёт после оплаты
         }),
       })
       const data = await res.json().catch(() => null)

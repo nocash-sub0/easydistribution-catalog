@@ -29,6 +29,11 @@ export function logout() {
   window.location.reload()
 }
 
+// Адрес сайта (папка, где открыт index.html) — сервер передаёт его Stripe как адрес возврата
+export function siteUrl() {
+  return new URL('.', window.location.href).href
+}
+
 // fetch с автоматической подстановкой токена; при 401 (токен истёк) выходит из аккаунта
 export async function apiFetch(path, options = {}) {
   const session = getSession()

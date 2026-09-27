@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { apiFetch, logout } from './api'
+import { apiFetch, logout, siteUrl } from './api'
 import { LangSwitch, useLang } from './i18n'
 import Avatar from './Avatar'
 import Logo from './Logo'
@@ -129,7 +129,7 @@ function CardsTab() {
     setBusy('add')
     setError(null)
     try {
-      const { url } = await request('/me/cards/setup', 'POST', undefined, tr)
+      const { url } = await request('/me/cards/setup', 'POST', { siteUrl: siteUrl() }, tr)
       window.location.assign(url)
     } catch (err) {
       setError(err.message)

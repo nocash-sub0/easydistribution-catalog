@@ -40,6 +40,21 @@ app.use((req, res, next) => {
 
 const stripe = process.env.STRIPE_SECRET_KEY ? require('stripe')(process.env.STRIPE_SECRET_KEY) : null
 const FRONTEND_URL = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/+$/, '')
+if (process.env.RENDER && /localhost|127\.0\.0\.1/.test(FRONTEND_URL)) {
+  console.warn('⚠️  FRONTEND_URL указывает на localhost — ссылки в письмах (заказы, сброс пароля) будут вести не на сайт')
+}
+
+// Куда Stripe вернёт покупателя: на тот сайт, с которого он пришёл. Адрес сайта браузер сообщает сам
+// (заголовок Origin), путь — фронтенд в siteUrl, но только на том же домене. Так возврат работает,
+// даже если FRONTEND_URL на сервере не настроен. Для ссылок в письмах так нельзя: сброс пароля может
+// запросить кто угодно, подставив чужой адрес, — там только FRONTEND_URL.
+function stripeReturnBase(req) {
+  const origin = req.get('origin')
+  if (!origin || !/^https?:\/\/[^/\s]+$/i.test(origin)) return FRONTEND_URL
+  const claimed = String(req.body?.siteUrl || '')
+  if (claimed.startsWith(origin + '/') && !/[?#\s]/.test(claimed)) return claimed.replace(/\/+$/, '')
+  return origin
+}
 const STRIPE_CURRENCY = (process.env.STRIPE_CURRENCY || 'mdl').toLowerCase()
 
 // Webhook обязан получать «сырое» тело запроса, поэтому регистрируется до express.json()
@@ -465,8 +480,8 @@ app.post('/orders', requireRole('client'), async (req, res) => {
               },
             })),
             metadata: { order_id: String(result.insertId) },
-            success_url: FRONTEND_URL + '/?payment=success&order=' + result.insertId,
-            cancel_url: FRONTEND_URL + '/?payment=cancelled&order=' + result.insertId,
+            success_url: stripeReturnBase(req) + '/?payment=success&order=' + result.insertId,
+            cancel_url: stripeReturnBase(req) + '/?payment=cancelled&order=' + result.insertId,
           })
           await pool.query('UPDATE orders SET stripe_session_id = ? WHERE id = ?', [session.id, result.insertId])
           return res.status(201).json({ id: result.insertId, total, paymentUrl: session.url })
@@ -1262,8 +1277,8 @@ app.post('/me/cards/setup', requireRole('client'), async (req, res) => {
       currency: STRIPE_CURRENCY,
       customer: customerId,
       payment_method_types: ['card'],
-      success_url: FRONTEND_URL + '/#/profile/cards',
-      cancel_url: FRONTEND_URL + '/#/profile/cards',
+      success_url: stripeReturnBase(req) + '/#/profile/cards',
+      cancel_url: stripeReturnBase(req) + '/#/profile/cards',
     })
     res.json({ url: session.url })
   } catch (err) {
