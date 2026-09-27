@@ -4,6 +4,7 @@ import { formatMDL, stockState, useCatalog } from './catalog'
 import { APP_NAME, LangSwitch, useLang } from './i18n'
 import { categoryIcon, imageUrl } from './images'
 import Logo from './Logo'
+import FilterPanel, { EMPTY_FILTERS, applyFilters, hasActiveFilters } from './Filters'
 
 export function ProductCard({ product, qty, onChangeQty }) {
   const { t, unit } = useLang()
@@ -71,34 +72,51 @@ export default function Storefront({ session, cart, onChangeQty, onCheckout, onO
 
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
-  const [category, setCategory] = useState('all')
+  const [filters, setFilters] = useState(EMPTY_FILTERS)
+  // панель фильтров открыта по умолчанию на широком экране; выбор запоминаем
+  const [filtersOpen, setFiltersOpen] = useState(() => {
+    try {
+      const saved = localStorage.getItem('filtersOpen')
+      if (saved !== null) return saved === '1'
+    } catch {
+      // хранилище недоступно
+    }
+    return window.matchMedia('(min-width: 900px)').matches
+  })
+  const toggleFilters = (open) => {
+    setFiltersOpen(open)
+    try {
+      localStorage.setItem('filtersOpen', open ? '1' : '0')
+    } catch {
+      // не критично
+    }
+  }
 
   const [showCart, setShowCart] = useState(false)
-
-  // при смене языка категории приходят уже переведёнными — сбрасываем выбранную
-  useEffect(() => {
-    setCategory('all')
-  }, [lang])
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search), 300)
     return () => clearTimeout(timer)
   }, [search])
 
-  const categories = useMemo(() => [...new Set(products.map((p) => p.category))], [products])
+  // категории с переведёнными названиями и количеством товаров
+  const categories = useMemo(() => {
+    const map = new Map()
+    for (const p of products) {
+      const c = map.get(p.categoryCode) || { code: p.categoryCode, name: p.category, count: 0 }
+      c.count++
+      map.set(p.categoryCode, c)
+    }
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, lang))
+  }, [products, lang])
 
   const filtered = useMemo(
-    () =>
-      products.filter(
-        (p) =>
-          (category === 'all' || p.category === category) &&
-          p.name.toLowerCase().includes(debouncedSearch.toLowerCase())
-      ),
-    [products, category, debouncedSearch]
+    () => applyFilters(products, filters, debouncedSearch, lang),
+    [products, filters, debouncedSearch, lang]
   )
 
-  // «Показать ещё»: при смене категории или поиска снова показываем первую страницу
-  const filterKey = `${lang}|${category}|${debouncedSearch}`
+  // «Показать ещё»: при смене фильтров или поиска снова показываем первую страницу
+  const filterKey = `${lang}|${JSON.stringify(filters)}|${debouncedSearch}`
   const [more, setMore] = useState({ key: '', count: PAGE_SIZE })
   const limit = more.key === filterKey ? more.count : PAGE_SIZE
   const shown = filtered.slice(0, limit)
@@ -122,7 +140,7 @@ export default function Storefront({ session, cart, onChangeQty, onCheckout, onO
         <div className="header-inner">
           <Logo
             onClick={() => {
-              setCategory('all')
+              setFilters(EMPTY_FILTERS)
               setSearch('')
               setShowCart(false)
               window.scrollTo(0, 0)
@@ -165,16 +183,6 @@ export default function Storefront({ session, cart, onChangeQty, onCheckout, onO
           </div>
         </div>
       </header>
-
-      <nav className="catnav">
-        <div className="catnav-inner">
-          {['all', ...categories].map((cat) => (
-            <button key={cat} className={category === cat ? 'active' : ''} onClick={() => setCategory(cat)}>
-              {cat === 'all' ? t('allCategories') : cat}
-            </button>
-          ))}
-        </div>
-      </nav>
 
       <main className="page">
         {!session && (
@@ -235,27 +243,45 @@ export default function Storefront({ session, cart, onChangeQty, onCheckout, onO
 
         {!error && loading && <p>{t('loading')}</p>}
 
-        {!error && !loading && (
-          <p className="results-line">
-            {t('productsCount')}: {filtered.length}
-          </p>
-        )}
-
-        {!error && !loading && filtered.length === 0 && <p>{t('nothingFound')}</p>}
-
-        <div className="grid">
-          {shown.map((product) => (
-            <ProductCard key={product.id} product={product} qty={cart[product.id] || 0} onChangeQty={changeQty} />
-          ))}
+        <div className="toolbar">
+          <span className="results-line">{!error && !loading && `${t('productsCount')}: ${filtered.length}`}</span>
+          <button
+            className={'btn btn-light filters-toggle' + (hasActiveFilters(filters) ? ' has-active' : '')}
+            onClick={() => toggleFilters(!filtersOpen)}
+            aria-expanded={filtersOpen}
+          >
+            ☰ {filtersOpen ? t('hideFilters') : t('filters')}
+          </button>
         </div>
 
-        {shown.length < filtered.length && (
-          <div className="show-more">
-            <button className="btn btn-yellow" onClick={() => setMore({ key: filterKey, count: limit + PAGE_SIZE })}>
-              {t('showMore', { n: shown.length, total: filtered.length })}
-            </button>
+        <div className={'shop-layout' + (filtersOpen ? ' with-filters' : '')}>
+          <div className="shop-products">
+            {!error && !loading && filtered.length === 0 && <p>{t('nothingFound')}</p>}
+
+            <div className="grid">
+              {shown.map((product) => (
+                <ProductCard key={product.id} product={product} qty={cart[product.id] || 0} onChangeQty={changeQty} />
+              ))}
+            </div>
+
+            {shown.length < filtered.length && (
+              <div className="show-more">
+                <button className="btn btn-yellow" onClick={() => setMore({ key: filterKey, count: limit + PAGE_SIZE })}>
+                  {t('showMore', { n: shown.length, total: filtered.length })}
+                </button>
+              </div>
+            )}
           </div>
-        )}
+
+          {filtersOpen && (
+            <FilterPanel
+              categories={categories}
+              filters={filters}
+              onChange={setFilters}
+              onClose={() => toggleFilters(false)}
+            />
+          )}
+        </div>
       </main>
 
       <footer className="footer">

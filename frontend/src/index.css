@@ -48,7 +48,6 @@ button {
 
 .topbar-inner,
 .header-inner,
-.catnav-inner,
 .page {
   max-width: 1280px;
   margin: 0 auto;
@@ -193,39 +192,6 @@ button {
   color: #ffffff;
 }
 
-/* Полоса категорий */
-
-.catnav {
-  background: white;
-  border-bottom: 1px solid var(--border);
-}
-
-.catnav-inner {
-  display: flex;
-  gap: 4px;
-  overflow-x: auto;
-  scrollbar-width: thin;
-}
-
-.catnav button {
-  background: none;
-  border: none;
-  border-bottom: 3px solid transparent;
-  padding: 13px 14px;
-  font-weight: 600;
-  color: var(--text);
-  white-space: nowrap;
-}
-
-.catnav button:hover {
-  color: var(--blue);
-}
-
-.catnav button.active {
-  color: var(--blue);
-  border-bottom-color: var(--yellow);
-}
-
 /* ---------- Содержимое ---------- */
 
 .page {
@@ -252,7 +218,150 @@ button {
 
 .results-line {
   color: var(--muted);
-  margin: 0 0 14px;
+}
+
+/* ---------- Фильтры справа от списка товаров ---------- */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.btn-light {
+  background: white;
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.btn-light:hover:not(:disabled) {
+  border-color: var(--yellow);
+}
+
+.filters-toggle.has-active {
+  border-color: var(--yellow);
+  color: var(--yellow-dark);
+}
+
+.shop-layout.with-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 20px;
+  align-items: start;
+}
+
+.filters {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  position: sticky;
+  top: 12px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+}
+
+.filters-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.filters-head h3 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.filters-close {
+  background: none;
+  border: none;
+  font-size: 16px;
+  color: var(--muted);
+  padding: 4px 6px;
+}
+
+.filter-group {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.filter-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.filters select,
+.price-range input {
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: white;
+  color: var(--text);
+}
+
+.price-range {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.price-range input {
+  min-width: 0;
+}
+
+.filter-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.filter-check input {
+  accent-color: var(--yellow);
+  flex-shrink: 0;
+}
+
+.filter-check-label {
+  flex: 1;
+}
+
+.filter-count {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.filters-reset {
+  width: 100%;
+  margin-top: 14px;
+}
+
+.filters-reset:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* На узком экране панель выезжает поверх товаров справа */
+@media (max-width: 900px) {
+  .shop-layout.with-filters {
+    display: block;
+  }
+
+  .filters {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(320px, 88vw);
+    max-height: none;
+    border-radius: 0;
+    z-index: 50;
+    box-shadow: -8px 0 24px rgba(30, 50, 70, 0.2);
+  }
 }
 
 .grid {
