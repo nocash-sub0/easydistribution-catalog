@@ -2,8 +2,10 @@
   "name": "backend",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "servers.js",
   "scripts": {
+    "start": "node servers.js",
+    "db:init": "node db-init.js",
     "test": "node --test --test-concurrency=1 test/api.test.js"
   },
   "keywords": [],

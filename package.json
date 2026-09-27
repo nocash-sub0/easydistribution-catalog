@@ -1,0 +1,16 @@
+{
+  "name": "easydistribution-catalog",
+  "private": true,
+  "description": "Каталог поставщика с персональными ценами: backend (Express + MySQL) и frontend (React + Vite)",
+  "scripts": {
+    "postinstall": "npm --prefix backend install && npm --prefix frontend install",
+    "dev": "npm --prefix frontend run dev",
+    "dev:full": "concurrently -n api,web -c blue,green \"npm --prefix backend run start\" \"cross-env VITE_API_URL=http://localhost:3000 npm --prefix frontend run dev\"",
+    "db:init": "npm --prefix backend run db:init",
+    "test": "npm --prefix backend test"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "cross-env": "^7.0.3"
+  }
+}

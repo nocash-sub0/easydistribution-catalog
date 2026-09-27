@@ -55,4 +55,4 @@ async function prepareTestDatabase() {
   }
 }
 
-module.exports = { prepareTestDatabase, TEST_DB }
+module.exports = { prepareTestDatabase, TEST_DB, STEPS }
