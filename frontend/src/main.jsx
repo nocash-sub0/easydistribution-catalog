@@ -2,22 +2,24 @@ import { StrictMode, Suspense, lazy, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import Storefront from './Storefront.jsx'
-import { getSession } from './api'
+import { getSession, renameSession } from './api'
 import { LangProvider, useLang } from './i18n'
 import { navigate, useRoute } from './router'
+import { applyProfilePreferences } from './theme'
 
 // Витрина грузится сразу, остальные экраны — только когда их открывают.
 // Так гость не скачивает код админки, импорта CSV и оформления заказа.
 const App = lazy(() => import('./App.jsx'))
 const Checkout = lazy(() => import('./Checkout.jsx'))
 const Login = lazy(() => import('./Login.jsx'))
-const MyOrders = lazy(() => import('./MyOrders.jsx'))
+const Profile = lazy(() => import('./Profile.jsx'))
 const PaymentResult = lazy(() => import('./PaymentResult.jsx'))
 const ProductPage = lazy(() => import('./ProductPage.jsx'))
 const ResetPassword = lazy(() => import('./ResetPassword.jsx'))
 
 const CART_KEY = 'cart'
-const ADMIN_TABS = ['catalog', 'pricelists', 'orders', 'clients']
+const ADMIN_TABS = ['catalog', 'pricelists', 'orders', 'clients', 'promotions']
+const PROFILE_TABS = ['orders', 'cards', 'settings', 'prefs']
 
 function loadCart() {
   try {
@@ -36,6 +38,7 @@ function Loading() {
 }
 
 function Root() {
+  const { setLang } = useLang()
   const [session, setSession] = useState(getSession)
   const [showLogin, setShowLogin] = useState(false)
   const [paymentReturn, setPaymentReturn] = useState(() => !!new URLSearchParams(window.location.search).get('payment'))
@@ -63,14 +66,17 @@ function Root() {
   }, [isAdmin])
 
   // Нет прав на страницу (например, вышли из аккаунта на /#/admin) — возвращаем на витрину
-  const forbidden = (path.startsWith('/admin') && !isAdmin) || (path === '/orders' && !isClient)
+  const forbidden = (path.startsWith('/admin') && !isAdmin) || (path.startsWith('/profile') && !isClient)
   useEffect(() => {
     if (forbidden) navigate('/')
-  }, [forbidden])
+    // старая ссылка «Мои заказы» (в том числе из писем) ведёт во вкладку профиля
+    else if (path === '/orders') navigate(isClient ? '/profile/orders' : '/')
+  }, [forbidden, path, isClient])
 
   const handleLogin = (newSession) => {
     setSession(newSession)
     setShowLogin(false)
+    applyProfilePreferences(setLang)
   }
 
   const changeQty = (id, qty) => {
@@ -107,8 +113,16 @@ function Root() {
         onOpenShop={goShop}
       />
     )
-  } else if (path === '/orders' && isClient) {
-    page = <MyOrders onBack={goShop} />
+  } else if (path.startsWith('/profile') && isClient) {
+    const tab = path.split('/')[2]
+    page = (
+      <Profile
+        tab={PROFILE_TABS.includes(tab) ? tab : 'orders'}
+        onTab={(t) => navigate(`/profile/${t}`)}
+        onBack={goShop}
+        onNameChange={(name) => setSession(renameSession(name))}
+      />
+    )
   } else if (path === '/checkout') {
     page = (
       <Checkout
@@ -135,7 +149,7 @@ function Root() {
           onCheckout={() => navigate('/checkout')}
           onOpenLogin={() => setShowLogin(true)}
           onOpenAdmin={() => navigate('/admin')}
-          onOpenMyOrders={() => navigate('/orders')}
+          onOpenProfile={() => navigate('/profile')}
         />
         {productMatch && (
           <ProductPage

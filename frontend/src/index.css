@@ -9,6 +9,25 @@
   --muted: #6b7785;
   --border: #e1e6ea;
   --green: #15803d;
+  --field: #ffffff;
+  --surface-alt: #f8fafb;
+  --img-bg: var(--img-bg);
+  --chip: #e8edf2;
+  --accent-bg: #f2f8f6;
+  --ok: #2f6f5f;
+  --ok-bg: #e3f1ec;
+  --warn: #b54708;
+  --warn-bg: #fff5e5;
+  --danger: #b42318;
+  --danger-bg: #fbe9e9;
+  --danger-border: #e4a6a0;
+  --select-bg: #e0f0ff;
+  --border-strong: #b8c2cc;
+  --disabled-bg: #d5dbe3;
+  --disabled: #8894a3;
+  --shadow: rgba(30, 50, 70, 0.12);
+  --promo: #d9480f;
+  --link: #3f5a73;
 
   font-family: system-ui, 'Segoe UI', Roboto, Arial, sans-serif;
   font-size: 15px;
@@ -16,6 +35,39 @@
   color-scheme: light;
   color: var(--text);
   background: var(--bg);
+}
+
+:root[data-theme='dark'] {
+  --blue: #243447;
+  --blue-dark: #1a2634;
+  --yellow: #4f9a86;
+  --yellow-dark: #5fae99;
+  --bg: #11171d;
+  --card: #1b232c;
+  --text: #e3e9ef;
+  --muted: #95a3b3;
+  --border: #2d3945;
+  --green: #4ade80;
+  --field: #141b22;
+  --surface-alt: #202a34;
+  --img-bg: linear-gradient(135deg, #222c36, #1b232c);
+  --chip: #2a3642;
+  --accent-bg: #1d3530;
+  --ok: #6fd3b3;
+  --ok-bg: #173229;
+  --warn: #f5a35c;
+  --warn-bg: #3a2a17;
+  --danger: #f58c82;
+  --danger-bg: #3b1d1d;
+  --danger-border: #7a3b36;
+  --select-bg: #1d3450;
+  --border-strong: #46525e;
+  --disabled-bg: #2b3540;
+  --disabled: #6f7c8a;
+  --shadow: rgba(0, 0, 0, 0.45);
+  --promo: #ff8a50;
+  --link: #9cc3e6;
+  color-scheme: dark;
 }
 
 * {
@@ -30,8 +82,16 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
+}
+
+input,
+select,
+textarea {
+  background-color: var(--field);
+  color: var(--text);
 }
 
 button {
@@ -231,7 +291,7 @@ button {
 }
 
 .btn-light {
-  background: white;
+  background: var(--card);
   color: var(--text);
   border: 1px solid var(--border);
 }
@@ -299,7 +359,7 @@ button {
   padding: 7px 9px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: white;
+  background: var(--field);
   color: var(--text);
 }
 
@@ -382,14 +442,14 @@ button {
 }
 
 .card:hover {
-  box-shadow: 0 6px 18px rgba(30, 50, 70, 0.12);
+  box-shadow: 0 6px 18px var(--shadow);
   transform: translateY(-2px);
 }
 
 .card-img {
   height: 140px;
   border-radius: 6px;
-  background: linear-gradient(135deg, #eef2f5, #f8fafb);
+  background: var(--img-bg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -422,7 +482,7 @@ button {
 .price-main {
   font-size: 22px;
   font-weight: 800;
-  color: var(--blue);
+  color: var(--link);
 }
 
 .price-main small {
@@ -434,6 +494,38 @@ button {
 .price-sub {
   font-size: 12px;
   color: var(--muted);
+  margin-top: 2px;
+}
+
+.price-old {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.price-main.on-promo {
+  color: var(--promo);
+}
+
+.tag-promo {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 1;
+  background: var(--promo);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.promo-note {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--promo);
   margin-top: 2px;
 }
 
@@ -455,8 +547,8 @@ button {
 }
 
 .card .btn:disabled {
-  background: #d5dbe3;
-  color: #8894a3;
+  background: var(--disabled-bg);
+  color: var(--disabled);
   cursor: default;
 }
 
@@ -476,7 +568,7 @@ button {
   border: none;
   background: none;
   font-size: 20px;
-  color: var(--blue);
+  color: var(--link);
 }
 
 .qty button:hover {
@@ -484,7 +576,7 @@ button {
 }
 
 .panel {
-  background: white;
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 18px;
@@ -496,8 +588,8 @@ button {
 }
 
 .error-box {
-  background: white;
-  border: 1px solid #e11d48;
+  background: var(--card);
+  border: 1px solid var(--danger);
   border-radius: 8px;
   padding: 18px;
 }
@@ -523,7 +615,7 @@ button {
 }
 
 .modal {
-  background: white;
+  background: var(--card);
   border-radius: 10px;
   width: 100%;
   max-width: 360px;
@@ -570,7 +662,7 @@ button {
 }
 
 .form-error {
-  color: #dc2626;
+  color: var(--danger);
   margin: 0 0 12px;
 }
 
@@ -705,7 +797,7 @@ button {
 
 .pay-option.selected {
   border-color: var(--yellow);
-  background: #f2f8f6;
+  background: var(--accent-bg);
 }
 
 .pay-option.disabled {
@@ -735,7 +827,7 @@ button {
   font-size: 18px;
   font-weight: 800;
   padding: 14px 0;
-  color: var(--blue);
+  color: var(--link);
 }
 
 @media (max-width: 760px) {
@@ -770,19 +862,19 @@ button {
   border-radius: 12px;
   font-size: 12px;
   font-weight: 700;
-  background: #e8edf2;
-  color: var(--blue);
+  background: var(--chip);
+  color: var(--link);
 }
 
 .status-badge.st-paid,
 .status-badge.st-delivered {
-  background: #e3f1ec;
-  color: #2f6f5f;
+  background: var(--ok-bg);
+  color: var(--ok);
 }
 
 .status-badge.st-cancelled {
-  background: #fbe9e9;
-  color: #b42318;
+  background: var(--danger-bg);
+  color: var(--danger);
 }
 
 /* ---------- Фото в админке ---------- */
@@ -791,9 +883,9 @@ button {
   width: 40px;
   height: 40px;
   padding: 0;
-  border: 1px dashed #b8c2cc;
+  border: 1px dashed var(--border-strong);
   border-radius: 4px;
-  background: #f8fafb;
+  background: var(--surface-alt);
   font-size: 13px;
   overflow: hidden;
   display: flex;
@@ -810,7 +902,7 @@ button {
 .thumb-del {
   border: none;
   background: none;
-  color: #b42318;
+  color: var(--danger);
   padding: 2px;
   font-size: 12px;
 }
@@ -818,7 +910,7 @@ button {
 /* ---------- Остатки, редактор товара ---------- */
 
 .stock-low {
-  color: #b54708;
+  color: var(--warn);
   font-size: 12px;
   font-weight: 600;
   margin-top: 4px;
@@ -853,14 +945,14 @@ button {
 }
 
 .btn-danger {
-  background: #b42318;
+  background: var(--danger);
   color: #ffffff;
 }
 
 .btn-danger-outline {
   background: transparent;
-  color: #b42318;
-  border: 1px solid #e4a6a0;
+  color: var(--danger);
+  border: 1px solid var(--danger-border);
 }
 
 @media (max-width: 560px) {
@@ -882,7 +974,7 @@ a.card-name {
 }
 
 a.card-name:hover {
-  color: var(--blue);
+  color: var(--link);
   text-decoration: underline;
 }
 
@@ -890,7 +982,7 @@ a.card-name:hover {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 28px;
-  background: white;
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 24px;
@@ -901,7 +993,7 @@ a.card-name:hover {
   aspect-ratio: 1 / 1;
   max-width: 100%;
   border-radius: 8px;
-  background: linear-gradient(135deg, #eef2f5, #f8fafb);
+  background: var(--img-bg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -960,11 +1052,11 @@ a.card-name:hover {
 }
 
 .text-ok {
-  color: #2f6f5f;
+  color: var(--ok);
 }
 
 .text-danger {
-  color: #b42318;
+  color: var(--danger);
 }
 
 .product-buy {
@@ -1005,4 +1097,209 @@ a.card-name:hover {
   .product-title {
     font-size: 21px;
   }
+}
+
+.tag-inline.tag-inline-promo {
+  background: var(--promo);
+}
+
+/* ---------- Таблицы админки с атрибутом border ---------- */
+
+table[border] th,
+table[border] td {
+  border-color: var(--border);
+}
+
+/* ---------- Личный кабинет ---------- */
+
+.profile-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 14px 0;
+}
+
+.profile-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--yellow);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.profile-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+  overflow-x: auto;
+}
+
+.profile-tabs button {
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  padding: 10px 14px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.profile-tabs button.active {
+  color: var(--link);
+  border-bottom-color: var(--yellow);
+}
+
+.saved-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.card-brand {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  background: var(--chip);
+  border-radius: 4px;
+  padding: 4px 8px;
+}
+
+.card-number {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.saved-card .btn {
+  margin-left: auto;
+}
+
+.pref-row {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.pref-row:last-of-type {
+  border-bottom: none;
+}
+
+.pref-row select {
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  min-width: 200px;
+}
+
+.theme-options {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.theme-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.theme-option.selected {
+  border-color: var(--yellow);
+  background: var(--accent-bg);
+}
+
+.theme-icon {
+  font-size: 18px;
+}
+
+/* ---------- Акции в админке ---------- */
+
+.promo-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.promo-form {
+  max-width: 720px;
+}
+
+.promo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0 14px;
+}
+
+.field select {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-top: 4px;
+}
+
+.promo-targets {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.promo-targets .pay-option {
+  margin: 0;
+}
+
+.promo-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.promo-row-idle {
+  opacity: 0.65;
+}
+
+.promo-percent {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--promo);
+  min-width: 70px;
+}
+
+.promo-info {
+  flex: 1;
+  min-width: 220px;
+}
+
+.promo-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.status-badge.promo-st-running {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+
+.status-badge.promo-st-scheduled {
+  background: var(--warn-bg);
+  color: var(--warn);
 }

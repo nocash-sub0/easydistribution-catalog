@@ -339,7 +339,7 @@ async function notifyNewOrder(orderId, lang) {
   if (!mailer) return
   try {
     const [[order]] = await pool.query(
-      `SELECT o.*, c.name AS client_name, c.email AS client_email
+      `SELECT o.*, c.name AS client_name, c.email AS client_email, c.preferences AS client_preferences
        FROM orders o JOIN clients c ON c.id = o.client_id WHERE o.id = ?`,
       [orderId]
     )
@@ -357,13 +357,13 @@ async function notifyNewOrder(orderId, lang) {
       text: orderText(order, items, admin, null) + `\n\n${FRONTEND_URL}/#/admin/orders`,
     })
 
-    if (order.client_email) {
+    if (order.client_email && parsePreferences(order.client_preferences).orderEmails) {
       const m = ORDER_MAIL[lang] || ORDER_MAIL.ro
       await mailer.sendMail({
         from,
         to: order.client_email,
         subject: m.clientSubject(order.id),
-        text: orderText(order, items, m, m.clientIntro) + `\n\n${FRONTEND_URL}/#/orders`,
+        text: orderText(order, items, m, m.clientIntro) + `\n\n${FRONTEND_URL}/#/profile/orders`,
       })
     }
   } catch (err) {
@@ -439,11 +439,23 @@ app.post('/orders', requireRole('client'), async (req, res) => {
       }
       await conn.commit()
       notifyNewOrder(result.insertId, req.body.lang)
+      // телефон и адрес из заказа запоминаем в профиле, если там ещё пусто — в следующий раз подставятся сами
+      pool
+        .query('UPDATE clients SET phone = COALESCE(phone, ?), address = COALESCE(address, ?) WHERE id = ?', [
+          String(phone).slice(0, 50),
+          String(address).slice(0, 500),
+          req.user.clientId,
+        ])
+        .catch((err) => console.error('Profile autofill error:', err.message))
 
       if (paymentMethod === 'card') {
         try {
+          const customerId = await ensureStripeCustomer(req.user.clientId)
           const session = await stripe.checkout.sessions.create({
             mode: 'payment',
+            customer: customerId,
+            // Stripe покажет сохранённые карты клиента и предложит запомнить новую
+            saved_payment_method_options: { payment_method_save: 'enabled' },
             line_items: lines.map((l) => ({
               quantity: l.qty,
               price_data: {
@@ -603,24 +615,48 @@ app.patch('/orders/:id/status', requireAdmin, async (req, res) => {
 
 // --- Каталог ---
 
-// Каталог для клиента на языке; готовый результат берётся из кэша в памяти
-function buildCatalog(clientId, lang) {
-  const trLang = ['ru', 'en'].includes(lang) ? lang : null
-  return catalogCache.cached(`${clientId || ''}|${trLang || 'ro'}`, () => loadCatalog(clientId, trLang))
+// Акции действуют по календарю Молдовы: дата «сегодня» — в часовом поясе магазина
+function shopToday() {
+  return new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Chisinau' }) // YYYY-MM-DD
 }
 
-async function loadCatalog(clientId, trLang) {
-  const [defaultLists] = await pool.query('SELECT id FROM price_lists WHERE is_default = TRUE LIMIT 1')
-  const defaultListId = defaultLists[0].id
+// Каталог для клиента на языке; готовый результат берётся из кэша в памяти.
+// withPromos: false — «чистые» цены прайса без акций (таблица цен в админке, где цены редактируются)
+function buildCatalog(clientId, lang, { withPromos = true } = {}) {
+  const trLang = ['ru', 'en'].includes(lang) ? lang : null
+  // дата в ключе: с наступлением нового дня акции пересчитываются сами
+  const key = `${clientId || ''}|${trLang || 'ro'}|${withPromos ? shopToday() : 'raw'}`
+  return catalogCache.cached(key, () => loadCatalog(clientId, trLang, withPromos))
+}
 
-  let activeListId = defaultListId
-  if (clientId) {
-    const [assignments] = await pool.query(
-      'SELECT price_list_id FROM client_assignments WHERE client_id = ?',
-      [clientId]
-    )
-    if (assignments.length > 0) activeListId = assignments[0].price_list_id
+// Лучшая (самая большая) из действующих скидок для товара: на сам товар, его категорию или на весь каталог
+function bestPromo(promos, row) {
+  let best = null
+  for (const p of promos) {
+    const fits = p.product_id ? p.product_id === row.id : p.category ? p.category === row.category : true
+    if (fits && (!best || Number(p.percent) > Number(best.percent))) best = p
   }
+  return best
+}
+
+async function loadCatalog(clientId, trLang, withPromos) {
+  const today = shopToday()
+  // независимые запросы — параллельно: база далеко, каждый круг до неё заметен
+  const [[defaultLists], [assignments], [promos]] = await Promise.all([
+    pool.query('SELECT id FROM price_lists WHERE is_default = TRUE LIMIT 1'),
+    clientId ? pool.query('SELECT price_list_id FROM client_assignments WHERE client_id = ?', [clientId]) : [[]],
+    withPromos
+      ? pool.query(
+          `SELECT id, percent, product_id, category, client_id, DATE_FORMAT(ends_at, '%Y-%m-%d') AS ends_at
+           FROM promotions
+           WHERE active AND (starts_at IS NULL OR starts_at <= ?) AND (ends_at IS NULL OR ends_at >= ?)
+             AND (client_id IS NULL OR client_id = ?)`,
+          [today, today, clientId]
+        )
+      : [[]],
+  ])
+  const defaultListId = defaultLists[0].id
+  const activeListId = assignments.length > 0 ? assignments[0].price_list_id : defaultListId
 
   const [rows] = await pool.query(
     `SELECT p.*, tr.name AS tr_name, tr.category AS tr_category, active.price AS active_price, def.price AS default_price,
@@ -646,8 +682,20 @@ async function loadCatalog(clientId, trLang) {
       basePrice = row.default_price !== null ? Number(row.default_price) : null
       priceSource = 'default'
     }
-    const pricing = calculatePricing(row, basePrice)
-    return { ...product, priceSource, ...pricing }
+    const promo = basePrice !== null ? bestPromo(promos, row) : null
+    if (!promo) return { ...product, priceSource, ...calculatePricing(row, basePrice) }
+
+    // скидка применяется к цене прайса клиента; обычную цену отдаём для зачёркнутой «было»
+    const regular = calculatePricing(row, basePrice)
+    const pricing = calculatePricing(row, round2(basePrice * (1 - Number(promo.percent) / 100)))
+    return {
+      ...product,
+      priceSource,
+      ...pricing,
+      regularPriceWithVat: regular.priceWithVat,
+      regularSaleUnitPriceWithVat: regular.saleUnitPriceWithVat,
+      promo: { percent: Number(promo.percent), endsAt: promo.ends_at, personal: !!promo.client_id },
+    }
   })
 
   return catalog
@@ -680,7 +728,8 @@ app.get('/catalog', async (req, res) => {
     if (user?.role === 'client') clientId = user.clientId
     else if (user?.role === 'admin') clientId = req.query.clientId || null
 
-    res.json(await buildCatalog(clientId, req.query.lang))
+    const withPromos = !(user?.role === 'admin' && req.query.raw === '1')
+    res.json(await buildCatalog(clientId, req.query.lang, { withPromos }))
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: 'Eroare server' })
@@ -909,6 +958,332 @@ app.post('/catalog/products/bulk', requireAdmin, async (req, res) => {
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: 'Eroare server' })
+  }
+})
+
+// --- Акции (скидки) ---
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
+// Проверка и нормализация акции из админки; возвращает { error } или { value }
+async function parsePromotion(body) {
+  const title = String(body.title || '').trim().slice(0, 255)
+  const percent = Number(body.percent)
+  const target = body.target
+  const startsAt = body.startsAt || null
+  const endsAt = body.endsAt || null
+  if (!title) return { error: 'Completați denumirea promoției' }
+  if (!Number.isFinite(percent) || percent <= 0 || percent >= 100) return { error: 'Reducere invalidă' }
+  if ((startsAt && !DATE_RE.test(startsAt)) || (endsAt && !DATE_RE.test(endsAt)) || (startsAt && endsAt && endsAt < startsAt)) {
+    return { error: 'Perioadă invalidă' }
+  }
+
+  let productId = null
+  let category = null
+  if (target === 'product') {
+    const [[p]] = await pool.query('SELECT id FROM products WHERE id = ?', [parseInt(body.productId) || 0])
+    if (!p) return { error: 'Produsul nu a fost găsit' }
+    productId = p.id
+  } else if (target === 'category') {
+    category = String(body.category || '').trim()
+    const [[c]] = await pool.query('SELECT 1 AS ok FROM products WHERE category = ? LIMIT 1', [category])
+    if (!c) return { error: 'Categorie inexistentă' }
+  } else if (target !== 'all') {
+    return { error: 'Promoție invalidă' }
+  }
+
+  let clientId = null
+  if (body.clientId) {
+    const [[c]] = await pool.query('SELECT id FROM clients WHERE id = ?', [String(body.clientId)])
+    if (!c) return { error: 'Client negăsit' }
+    clientId = c.id
+  }
+
+  const active = body.active === undefined ? true : !!body.active
+  return { value: { title, percent: round2(percent), productId, category, clientId, startsAt, endsAt, active } }
+}
+
+app.get('/admin/promotions', requireAdmin, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT pr.id, pr.title, pr.percent, pr.product_id AS productId, pr.category, pr.client_id AS clientId,
+              DATE_FORMAT(pr.starts_at, '%Y-%m-%d') AS startsAt, DATE_FORMAT(pr.ends_at, '%Y-%m-%d') AS endsAt,
+              pr.active, p.name AS productName, p.code AS productCode, c.name AS clientName
+       FROM promotions pr
+       LEFT JOIN products p ON p.id = pr.product_id
+       LEFT JOIN clients c ON c.id = pr.client_id
+       ORDER BY pr.id DESC`
+    )
+    const today = shopToday()
+    res.json(
+      rows.map((r) => ({
+        ...r,
+        percent: Number(r.percent),
+        active: !!r.active,
+        target: r.productId ? 'product' : r.category ? 'category' : 'all',
+        // для списка в админке: идёт сейчас, запланирована, закончилась или выключена
+        state: !r.active
+          ? 'off'
+          : r.startsAt && r.startsAt > today
+            ? 'scheduled'
+            : r.endsAt && r.endsAt < today
+              ? 'ended'
+              : 'running',
+      }))
+    )
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Eroare server' })
+  }
+})
+
+app.post('/admin/promotions', requireAdmin, async (req, res) => {
+  try {
+    const { error, value: v } = await parsePromotion(req.body)
+    if (error) return res.status(400).json({ error })
+    const [result] = await pool.query(
+      `INSERT INTO promotions (title, percent, product_id, category, client_id, starts_at, ends_at, active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [v.title, v.percent, v.productId, v.category, v.clientId, v.startsAt, v.endsAt, v.active]
+    )
+    res.status(201).json({ id: result.insertId })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Eroare server' })
+  }
+})
+
+app.put('/admin/promotions/:id', requireAdmin, async (req, res) => {
+  try {
+    const { error, value: v } = await parsePromotion(req.body)
+    if (error) return res.status(400).json({ error })
+    const [result] = await pool.query(
+      `UPDATE promotions SET title = ?, percent = ?, product_id = ?, category = ?, client_id = ?, starts_at = ?, ends_at = ?, active = ?
+       WHERE id = ?`,
+      [v.title, v.percent, v.productId, v.category, v.clientId, v.startsAt, v.endsAt, v.active, parseInt(req.params.id)]
+    )
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'Promoția nu a fost găsită' })
+    res.json({ success: true })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Eroare server' })
+  }
+})
+
+app.delete('/admin/promotions/:id', requireAdmin, async (req, res) => {
+  try {
+    const [result] = await pool.query('DELETE FROM promotions WHERE id = ?', [parseInt(req.params.id)])
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'Promoția nu a fost găsită' })
+    res.json({ success: true })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Eroare server' })
+  }
+})
+
+// --- Профиль покупателя ---
+
+const THEMES = ['system', 'light', 'dark']
+const LANGS = ['ru', 'ro', 'en']
+const DEFAULT_PREFERENCES = { theme: 'system', lang: null, orderEmails: true }
+
+function parsePreferences(text) {
+  try {
+    return { ...DEFAULT_PREFERENCES, ...JSON.parse(text || '{}') }
+  } catch {
+    return { ...DEFAULT_PREFERENCES }
+  }
+}
+
+async function loadProfile(clientId) {
+  const [[c]] = await pool.query(
+    'SELECT id, name, login, email, phone, address, password_hash, preferences FROM clients WHERE id = ?',
+    [clientId]
+  )
+  if (!c) return null
+  return {
+    id: c.id,
+    name: c.name,
+    login: c.login,
+    email: c.email,
+    phone: c.phone || '',
+    address: c.address || '',
+    hasPassword: !!c.password_hash,
+    preferences: parsePreferences(c.preferences),
+  }
+}
+
+app.get('/me', requireRole('client'), async (req, res) => {
+  try {
+    const profile = await loadProfile(req.user.clientId)
+    if (!profile) return res.status(404).json({ error: 'Client negăsit' })
+    res.json(profile)
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Eroare server' })
+  }
+})
+
+app.put('/me', requireRole('client'), async (req, res) => {
+  try {
+    const name = String(req.body.name || '').trim().slice(0, 255)
+    const email = String(req.body.email || '').trim().toLowerCase()
+    const phone = String(req.body.phone || '').trim().slice(0, 50)
+    const address = String(req.body.address || '').trim().slice(0, 500)
+    if (!name) return res.status(400).json({ error: 'Numele este obligatoriu' })
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Email invalid' })
+
+    const [[current]] = await pool.query('SELECT login, email FROM clients WHERE id = ?', [req.user.clientId])
+    if (!current) return res.status(404).json({ error: 'Client negăsit' })
+    if (email && email !== current.email) {
+      const [taken] = await pool.query('SELECT id FROM clients WHERE (email = ? OR login = ?) AND id <> ?', [
+        email,
+        email,
+        req.user.clientId,
+      ])
+      if (taken.length > 0) return res.status(409).json({ error: 'Acest email este deja înregistrat' })
+    }
+    // у зарегистрированных по email логин совпадает с почтой — меняем их вместе
+    const login = current.login && current.login === current.email && email ? email : current.login
+
+    await pool.query('UPDATE clients SET name = ?, email = ?, login = ?, phone = ?, address = ? WHERE id = ?', [
+      name,
+      email || null,
+      login,
+      phone || null,
+      address || null,
+      req.user.clientId,
+    ])
+    res.json(await loadProfile(req.user.clientId))
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'Acest email este deja înregistrat' })
+    console.error(err)
+    res.status(500).json({ error: 'Eroare server' })
+  }
+})
+
+app.put('/me/password', requireRole('client'), loginLimiter, async (req, res) => {
+  try {
+    const currentPassword = String(req.body.currentPassword || '')
+    const newPassword = String(req.body.newPassword || '')
+    if (newPassword.length < 8) return res.status(400).json({ error: 'Parola trebuie să aibă minim 8 caractere' })
+
+    const [[c]] = await pool.query('SELECT password_hash FROM clients WHERE id = ?', [req.user.clientId])
+    if (!c) return res.status(404).json({ error: 'Client negăsit' })
+    // вошедшим через Google пароль задаётся впервые — старого нет
+    if (c.password_hash && !(await bcrypt.compare(currentPassword, c.password_hash))) {
+      return res.status(400).json({ error: 'Parola curentă este incorectă' })
+    }
+    await pool.query('UPDATE clients SET password_hash = ? WHERE id = ?', [await bcrypt.hash(newPassword, 10), req.user.clientId])
+    res.json({ success: true })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Eroare server' })
+  }
+})
+
+app.put('/me/preferences', requireRole('client'), async (req, res) => {
+  try {
+    const [[c]] = await pool.query('SELECT preferences FROM clients WHERE id = ?', [req.user.clientId])
+    if (!c) return res.status(404).json({ error: 'Client negăsit' })
+    const prefs = parsePreferences(c.preferences)
+    const { theme, lang, orderEmails } = req.body
+    if (theme !== undefined) {
+      if (!THEMES.includes(theme)) return res.status(400).json({ error: 'Setare invalidă' })
+      prefs.theme = theme
+    }
+    if (lang !== undefined) {
+      if (!LANGS.includes(lang)) return res.status(400).json({ error: 'Setare invalidă' })
+      prefs.lang = lang
+    }
+    if (orderEmails !== undefined) prefs.orderEmails = !!orderEmails
+    await pool.query('UPDATE clients SET preferences = ? WHERE id = ?', [JSON.stringify(prefs), req.user.clientId])
+    res.json(prefs)
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Eroare server' })
+  }
+})
+
+// --- Сохранённые карты (хранятся в Stripe, у нас только id клиента Stripe) ---
+
+async function ensureStripeCustomer(clientId) {
+  const [[c]] = await pool.query('SELECT id, name, email, stripe_customer_id FROM clients WHERE id = ?', [clientId])
+  if (!c) return null
+  if (c.stripe_customer_id) return c.stripe_customer_id
+  const customer = await stripe.customers.create({
+    name: c.name,
+    email: c.email || undefined,
+    metadata: { client_id: c.id },
+  })
+  // если параллельный запрос успел создать своего — оставляем того, кто записался первым
+  await pool.query('UPDATE clients SET stripe_customer_id = ? WHERE id = ? AND stripe_customer_id IS NULL', [customer.id, c.id])
+  const [[saved]] = await pool.query('SELECT stripe_customer_id FROM clients WHERE id = ?', [c.id])
+  return saved.stripe_customer_id
+}
+
+async function existingStripeCustomer(clientId) {
+  const [[c]] = await pool.query('SELECT stripe_customer_id FROM clients WHERE id = ?', [clientId])
+  return c?.stripe_customer_id || null
+}
+
+app.get('/me/cards', requireRole('client'), async (req, res) => {
+  try {
+    if (!stripe) return res.json([])
+    const customerId = await existingStripeCustomer(req.user.clientId)
+    if (!customerId) return res.json([])
+    const list = await stripe.paymentMethods.list({ customer: customerId, type: 'card' })
+    for (const pm of list.data) {
+      // карты, добавленные в профиле, Stripe Checkout предлагает при оплате только с allow_redisplay = always
+      if (pm.allow_redisplay !== 'always') await stripe.paymentMethods.update(pm.id, { allow_redisplay: 'always' })
+    }
+    res.json(
+      list.data.map((pm) => ({
+        id: pm.id,
+        brand: pm.card.brand,
+        last4: pm.card.last4,
+        expMonth: pm.card.exp_month,
+        expYear: pm.card.exp_year,
+      }))
+    )
+  } catch (err) {
+    console.error('Stripe cards error:', err.message)
+    res.status(502).json({ error: 'Eroare Stripe' })
+  }
+})
+
+// Добавление карты: страница Stripe в режиме setup — номер карты вводится только у Stripe
+app.post('/me/cards/setup', requireRole('client'), async (req, res) => {
+  try {
+    if (!stripe) return res.status(501).json({ error: 'Plata cu cardul nu este configurată' })
+    const customerId = await ensureStripeCustomer(req.user.clientId)
+    const session = await stripe.checkout.sessions.create({
+      mode: 'setup',
+      currency: STRIPE_CURRENCY,
+      customer: customerId,
+      payment_method_types: ['card'],
+      success_url: FRONTEND_URL + '/#/profile/cards',
+      cancel_url: FRONTEND_URL + '/#/profile/cards',
+    })
+    res.json({ url: session.url })
+  } catch (err) {
+    console.error('Stripe setup error:', err.message)
+    res.status(502).json({ error: 'Eroare Stripe' })
+  }
+})
+
+app.delete('/me/cards/:id', requireRole('client'), async (req, res) => {
+  try {
+    if (!stripe) return res.status(501).json({ error: 'Plata cu cardul nu este configurată' })
+    const customerId = await existingStripeCustomer(req.user.clientId)
+    const pm = customerId ? await stripe.paymentMethods.retrieve(req.params.id).catch(() => null) : null
+    // удалить можно только свою карту
+    if (!pm || pm.customer !== customerId) return res.status(404).json({ error: 'Cardul nu a fost găsit' })
+    await stripe.paymentMethods.detach(pm.id)
+    res.json({ success: true })
+  } catch (err) {
+    console.error('Stripe detach error:', err.message)
+    res.status(502).json({ error: 'Eroare Stripe' })
   }
 })
 

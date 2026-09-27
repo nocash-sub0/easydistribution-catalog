@@ -59,6 +59,16 @@ const SERVER_ERRORS = {
   'Coeficient invalid': 'errFactorInvalid',
   'Stoc invalid': 'errStockInvalid',
   'cotă TVA invalidă': 'errVat',
+  'Parola curentă este incorectă': 'errCurrentPw',
+  'Setare invalidă': 'errSetting',
+  'Eroare Stripe': 'errStripe',
+  'Cardul nu a fost găsit': 'errCardNotFound',
+  'Completați denumirea promoției': 'errPromoTitle',
+  'Reducere invalidă': 'errPromoPercent',
+  'Perioadă invalidă': 'errPromoDates',
+  'Categorie inexistentă': 'errPromoCategory',
+  'Promoție invalidă': 'errPromoTarget',
+  'Promoția nu a fost găsită': 'errPromoNotFound',
 }
 
 // Единицы измерения товаров: переводим только известные, остальные показываем как есть

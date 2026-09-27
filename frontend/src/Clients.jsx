@@ -94,7 +94,7 @@ export default function Clients({ active = true }) {
 
       {!loading && !error && (
         <div style={{ overflowX: 'auto' }}>
-          <table border="1" cellPadding="8" style={{ borderCollapse: 'collapse', width: '100%', background: 'white' }}>
+          <table border="1" cellPadding="8" style={{ borderCollapse: 'collapse', width: '100%', background: 'var(--card)' }}>
             <thead>
               <tr>
                 <th>{t('colName')}</th>
@@ -113,7 +113,7 @@ export default function Clients({ active = true }) {
                     {c.email && c.email !== c.login && (
                       <>
                         <br />
-                        <small style={{ color: '#888' }}>{c.email}</small>
+                        <small style={{ color: 'var(--muted)' }}>{c.email}</small>
                       </>
                     )}
                   </td>
@@ -132,14 +132,14 @@ export default function Clients({ active = true }) {
                   </td>
                   <td>
                     {c.orderCount}
-                    {c.orderCount > 0 && <small style={{ color: '#888' }}> · {c.orderTotal.toFixed(2)} MDL</small>}
+                    {c.orderCount > 0 && <small style={{ color: 'var(--muted)' }}> · {c.orderTotal.toFixed(2)} MDL</small>}
                   </td>
                   <td>
                     {issued?.clientId === c.id ? (
                       <div>
                         {t('newPasswordIs')}: <code style={{ fontSize: '15px', userSelect: 'all' }}>{issued.password}</code>
                         <br />
-                        <small style={{ color: '#888' }}>{t('passwordShownOnce')}</small>
+                        <small style={{ color: 'var(--muted)' }}>{t('passwordShownOnce')}</small>
                       </div>
                     ) : confirmDelete === c.id ? (
                       <span>

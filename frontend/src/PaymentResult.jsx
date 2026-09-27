@@ -36,7 +36,7 @@ export default function PaymentResult({ session, onBack }) {
       ? { icon: '✓', color: 'var(--yellow)', title: t('payOkTitle'), text: t('payOkText', { id: orderId }) }
       : status === 'pending_payment'
         ? { icon: '…', color: 'var(--muted)', title: t('payPendingTitle'), text: t('payPendingText', { id: orderId }) }
-        : { icon: '✕', color: '#dc2626', title: t('payCancelTitle'), text: t('payCancelText', { id: orderId }) }
+        : { icon: '✕', color: 'var(--danger)', title: t('payCancelTitle'), text: t('payCancelText', { id: orderId }) }
 
   return (
     <div>

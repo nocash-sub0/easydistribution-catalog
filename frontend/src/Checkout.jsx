@@ -30,6 +30,19 @@ export default function Checkout({ session, cart, onBack, onDone, onOpenLogin })
       .then((cfg) => setCardEnabled(!!cfg.cardPayments))
       .catch(() => {})
 
+    // телефон и адрес из профиля — чтобы не вводить каждый раз
+    if (session?.role === 'client') {
+      apiFetch('/me')
+        .then((res) => (res.ok ? res.json() : null))
+        .then((me) => {
+          if (!me) return
+          setContactName((v) => v || me.name)
+          setPhone((v) => v || me.phone)
+          setAddress((v) => v || me.address)
+        })
+        .catch(() => {})
+    }
+
     apiFetch(`/catalog?lang=${lang}`)
       .then((res) => res.json())
       .then(setProducts)
@@ -113,7 +126,7 @@ export default function Checkout({ session, cart, onBack, onDone, onOpenLogin })
             <button className="btn btn-yellow" onClick={onOpenLogin}>
               {t('login')}
             </button>{' '}
-            <button className="btn btn-ghost" style={{ color: 'var(--blue)', borderColor: 'var(--border)' }} onClick={onBack}>
+            <button className="btn btn-ghost" style={{ color: 'var(--link)', borderColor: 'var(--border)' }} onClick={onBack}>
               {t('backToCatalog')}
             </button>
           </div>
@@ -123,7 +136,7 @@ export default function Checkout({ session, cart, onBack, onDone, onOpenLogin })
             <button className="btn btn-yellow" onClick={logout}>
               {t('logout')}
             </button>{' '}
-            <button className="btn btn-ghost" style={{ color: 'var(--blue)', borderColor: 'var(--border)' }} onClick={onBack}>
+            <button className="btn btn-ghost" style={{ color: 'var(--link)', borderColor: 'var(--border)' }} onClick={onBack}>
               {t('backToCatalog')}
             </button>
           </div>

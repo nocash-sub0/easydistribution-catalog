@@ -74,7 +74,7 @@ export default function Orders({ active = true }) {
 
       {visible.length > 0 && (
         <div style={{ overflowX: 'auto' }}>
-          <table border="1" cellPadding="8" style={{ borderCollapse: 'collapse', width: '100%', background: 'white' }}>
+          <table border="1" cellPadding="8" style={{ borderCollapse: 'collapse', width: '100%', background: 'var(--card)' }}>
             <thead>
               <tr>
                 <th>{t('orderNo')}</th>

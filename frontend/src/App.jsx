@@ -4,6 +4,7 @@ import Papa from 'papaparse'
 import PriceLists from './PriceLists'
 import Orders from './Orders'
 import Clients from './Clients'
+import Promotions from './Promotions'
 import ProductEditor from './ProductEditor'
 import { apiFetch, logout, useRefreshWhenShown } from './api'
 import { categoryIcon, deleteProductImage, imageUrl, uploadProductImage } from './images'
@@ -18,7 +19,7 @@ function SkeletonRow() {
           <div
             style={{
               height: '16px',
-              background: '#e0e0e0',
+              background: 'var(--chip)',
               borderRadius: '4px',
               animation: 'pulse 1.5s ease-in-out infinite',
             }}
@@ -96,7 +97,7 @@ function VirtualizedTable({ products, editingId, setEditingId, handlePriceSave, 
 
   return (
     <div>
-      <div style={{ display: 'flex', fontWeight: 'bold', borderBottom: '2px solid #333', padding: '8px 0' }}>
+      <div style={{ display: 'flex', fontWeight: 'bold', borderBottom: '2px solid var(--text)', padding: '8px 0' }}>
         <div style={{ width: '70px' }}>{t('colPhoto')}</div>
         <div style={{ width: '220px' }}>{t('colName')}</div>
         <div style={{ width: '120px' }}>{t('colCategory')}</div>
@@ -114,7 +115,7 @@ function VirtualizedTable({ products, editingId, setEditingId, handlePriceSave, 
         style={{
           height: '500px',
           overflow: 'auto',
-          border: '1px solid #ccc',
+          border: '1px solid var(--border)',
         }}
       >
         <div
@@ -137,7 +138,7 @@ function VirtualizedTable({ products, editingId, setEditingId, handlePriceSave, 
                   transform: `translateY(${virtualRow.start}px)`,
                   display: 'flex',
                   alignItems: 'center',
-                  borderBottom: '1px solid #eee',
+                  borderBottom: '1px solid var(--border)',
                 }}
               >
                 <ImageCell product={product} onChanged={onImageChanged} />
@@ -173,7 +174,7 @@ function VirtualizedTable({ products, editingId, setEditingId, handlePriceSave, 
                 </div>
                 <div style={{ width: '60px' }}>{product.vatRate}%</div>
                 <div style={{ width: '100px' }}>{product.priceSource}</div>
-                <div style={{ width: '80px', color: product.stock === 0 ? '#b42318' : undefined }}>
+                <div style={{ width: '80px', color: product.stock === 0 ? 'var(--danger)' : undefined }}>
                   {product.stock === null ? '∞' : product.stock}
                 </div>
                 <div style={{ width: '50px' }}>
@@ -229,9 +230,8 @@ function App({ tab, onTab, onOpenShop }) {
   const fetchCatalog = ({ silent = false } = {}) => {
     if (!silent) setLoading(true)
     setError(null)
-    const url = clientId
-      ? `/catalog?clientId=${clientId}`
-      : `/catalog`
+    // raw=1: цены прайса без акций — здесь их редактируют, скидки видны во вкладке «Акции»
+    const url = clientId ? `/catalog?raw=1&clientId=${clientId}` : '/catalog?raw=1'
 
     apiFetch(url)
       .then((res) => {
@@ -410,6 +410,9 @@ function App({ tab, onTab, onOpenShop }) {
           <button className={'tab' + (activeTab === 'clients' ? ' active' : '')} onClick={() => setActiveTab('clients')}>
             {t('adminClients')}
           </button>
+          <button className={'tab' + (activeTab === 'promotions' ? ' active' : '')} onClick={() => setActiveTab('promotions')}>
+            {t('adminPromos')}
+          </button>
           <div className="spacer" />
           <LangSwitch />
           <button className="btn btn-ghost" onClick={onOpenShop}>{t('toShop')}</button>
@@ -426,6 +429,9 @@ function App({ tab, onTab, onOpenShop }) {
       </div>
       <div hidden={activeTab !== 'pricelists'}>
         <PriceLists active={activeTab === 'pricelists'} />
+      </div>
+      <div hidden={activeTab !== 'promotions'}>
+        <Promotions active={activeTab === 'promotions'} />
       </div>
       {activeTab === 'catalog' && (
         <div style={{ padding: '20px', fontFamily: 'sans-serif' }}>
@@ -485,7 +491,7 @@ function App({ tab, onTab, onOpenShop }) {
             </button>
 
             {showCsvImport && (
-              <div style={{ border: '1px solid #ccc', padding: '16px', marginTop: '10px', maxWidth: '700px' }}>
+              <div style={{ border: '1px solid var(--border)', padding: '16px', marginTop: '10px', maxWidth: '700px' }}>
                 <p>
                   {t('expectedCols')}: code, name, category, baseUnit, saleUnit, saleUnitFactor, vatRate, price
                 </p>
@@ -506,7 +512,7 @@ function App({ tab, onTab, onOpenShop }) {
                         </thead>
                         <tbody>
                           {csvValidation.map((v) => (
-                            <tr key={v.rowNumber} style={{ background: v.errors.length > 0 ? '#ffe5e5' : 'white' }}>
+                            <tr key={v.rowNumber} style={{ background: v.errors.length > 0 ? 'var(--danger-bg)' : 'var(--card)' }}>
                               <td>{v.rowNumber}</td>
                               <td>{v.row.code || '—'}</td>
                               <td>{v.row.name || '—'}</td>
@@ -548,7 +554,7 @@ function App({ tab, onTab, onOpenShop }) {
           {showForm && (
             <form
               onSubmit={handleFormSubmit}
-              style={{ border: '1px solid #ccc', padding: '16px', marginBottom: '16px', maxWidth: '400px' }}
+              style={{ border: '1px solid var(--border)', padding: '16px', marginBottom: '16px', maxWidth: '400px' }}
             >
               <h3>{t('newProduct')}</h3>
               {formError && <p style={{ color: 'red' }}>{formError}</p>}

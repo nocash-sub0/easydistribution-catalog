@@ -184,8 +184,8 @@ export default function PriceLists({ active = true }) {
                 style={{
                   padding: '8px',
                   cursor: 'pointer',
-                  background: selectedListId === pl.id ? '#e0f0ff' : 'transparent',
-                  border: '1px solid #ddd',
+                  background: selectedListId === pl.id ? 'var(--select-bg)' : 'transparent',
+                  border: '1px solid var(--border)',
                   marginBottom: '4px',
                 }}
               >
@@ -243,7 +243,7 @@ export default function PriceLists({ active = true }) {
                 style={{
                   maxHeight: '150px',
                   overflow: 'auto',
-                  border: '1px solid #ddd',
+                  border: '1px solid var(--border)',
                   margin: '8px 0',
                 }}
               >
@@ -256,8 +256,8 @@ export default function PriceLists({ active = true }) {
                         onChange={() => toggleClientSelection(c.id)}
                       />{' '}
                       {c.name}
-                      {c.email && <small style={{ color: '#888' }}> &lt;{c.email}&gt;</small>}{' '}
-                      <small style={{ color: '#888' }}>
+                      {c.email && <small style={{ color: 'var(--muted)' }}> &lt;{c.email}&gt;</small>}{' '}
+                      <small style={{ color: 'var(--muted)' }}>
                         ({t('currently')}: {priceLists.find((pl) => pl.id === c.priceListId)?.name || '—'})
                       </small>
                     </label>
@@ -287,7 +287,7 @@ export default function PriceLists({ active = true }) {
               <button onClick={handlePreviewDiscount}>{t('previewBtn')}</button>
 
               {discountPreview && (
-                <div style={{ border: '1px solid #ccc', padding: '10px', marginTop: '10px' }}>
+                <div style={{ border: '1px solid var(--border)', padding: '10px', marginTop: '10px' }}>
                   <h4>{t('previewChanges')}</h4>
                   <table border="1" cellPadding="6" style={{ borderCollapse: 'collapse' }}>
                     <thead>
@@ -345,9 +345,9 @@ export default function PriceLists({ active = true }) {
                         style={{
                           background: item.isOverridden
                             ? item.diffAmount < 0
-                              ? '#e5ffe5'
-                              : '#fff5e5'
-                            : 'white',
+                              ? 'var(--ok-bg)'
+                              : 'var(--warn-bg)'
+                            : 'var(--card)',
                         }}
                       >
                         <td>{item.name}</td>

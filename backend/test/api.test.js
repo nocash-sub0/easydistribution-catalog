@@ -319,6 +319,133 @@ test('прайс-лист клиента: VIP видит свои цены', asy
   assert.equal((await api('/catalog?clientId=client-vip')).data[0].price, guest.price)
 })
 
+test('акции: для всех и для одного клиента, даты, цена в заказе', async () => {
+  const a = await registerClient('Promo A')
+  const b = await registerClient('Promo B')
+  const aId = (await api('/me', { token: a.token })).data.id
+  const catalog = (await api('/catalog')).data
+  const product = catalog.find((p) => p.saleUnitPriceWithVat !== null && p.stock === null)
+  const other = catalog.find((p) => p.categoryCode !== product.categoryCode && p.saleUnitPriceWithVat !== null)
+  const create = (body) => api('/admin/promotions', { method: 'POST', token: adminToken, body })
+
+  // проверки ввода и доступ
+  assert.equal((await create({ title: 'X', percent: 0, target: 'all' })).status, 400)
+  assert.equal((await create({ title: 'X', percent: 100, target: 'all' })).status, 400)
+  assert.equal((await create({ title: '', percent: 10, target: 'all' })).status, 400)
+  assert.equal((await create({ title: 'X', percent: 10, target: 'all', startsAt: '2030-02-01', endsAt: '2030-01-01' })).status, 400)
+  assert.equal((await create({ title: 'X', percent: 10, target: 'category', category: 'Нет такой' })).status, 400)
+  assert.equal((await api('/admin/promotions', { method: 'POST', token: a.token, body: { title: 'X', percent: 10, target: 'all' } })).status, 403)
+
+  // 20% на товар для всех
+  const forAll = await create({ title: 'Для всех', percent: 20, target: 'product', productId: product.id })
+  assert.equal(forAll.status, 201, JSON.stringify(forAll.data))
+  const guestItem = (await api('/catalog')).data.find((p) => p.id === product.id)
+  assert.equal(guestItem.promo.percent, 20)
+  assert.equal(guestItem.regularSaleUnitPriceWithVat, product.saleUnitPriceWithVat)
+  assert.ok(Math.abs(guestItem.saleUnitPriceWithVat - product.saleUnitPriceWithVat * 0.8) < 0.05)
+
+  // в таблице цен админки (raw=1) акция не применяется — там редактируется обычная цена
+  const raw = (await api('/catalog?raw=1', { token: adminToken })).data.find((p) => p.id === product.id)
+  assert.equal(raw.promo, undefined)
+  assert.equal(raw.saleUnitPriceWithVat, product.saleUnitPriceWithVat)
+
+  // 30% на категорию только клиенту A; будущая акция ещё не действует
+  const personal = await create({ title: 'Только A', percent: 30, target: 'category', category: other.categoryCode, clientId: aId })
+  assert.equal(personal.status, 201)
+  const future = await create({ title: 'Скоро', percent: 50, target: 'product', productId: other.id, startsAt: '2099-01-01' })
+  assert.equal(future.status, 201)
+
+  const forA = (await api('/catalog', { token: a.token })).data.find((p) => p.id === other.id)
+  const forB = (await api('/catalog', { token: b.token })).data.find((p) => p.id === other.id)
+  assert.equal(forA.promo.percent, 30)
+  assert.equal(forA.promo.personal, true)
+  assert.equal(forB.promo, undefined, 'клиент B персональную скидку A не видит')
+
+  // заказ считается по акционной цене
+  const order = await api('/orders', { method: 'POST', token: a.token, body: orderBody([{ productId: other.id, qty: 2 }]) })
+  assert.equal(order.status, 201, JSON.stringify(order.data))
+  assert.equal(order.data.total, Math.round(2 * forA.saleUnitPriceWithVat * 100) / 100)
+
+  const list = (await api('/admin/promotions', { token: adminToken })).data
+  assert.equal(list.find((p) => p.id === future.data.id).state, 'scheduled')
+  assert.equal(list.find((p) => p.id === personal.data.id).clientName, 'Promo A')
+
+  // выключение и удаление
+  const off = await api(`/admin/promotions/${forAll.data.id}`, {
+    method: 'PUT',
+    token: adminToken,
+    body: { title: 'Для всех', percent: 20, target: 'product', productId: product.id, active: false },
+  })
+  assert.equal(off.status, 200)
+  assert.equal((await api('/catalog')).data.find((p) => p.id === product.id).promo, undefined)
+
+  for (const id of [forAll.data.id, personal.data.id, future.data.id]) {
+    assert.equal((await api(`/admin/promotions/${id}`, { method: 'DELETE', token: adminToken })).status, 200)
+  }
+  assert.equal((await api(`/admin/promotions/${forAll.data.id}`, { method: 'DELETE', token: adminToken })).status, 404)
+})
+
+test('профиль: данные, смена почты и пароля, настройки, автозаполнение из заказа', async () => {
+  const client = await registerClient('Profile User')
+  assert.equal((await api('/me')).status, 401)
+  assert.equal((await api('/me', { token: adminToken })).status, 403)
+
+  const me = (await api('/me', { token: client.token })).data
+  assert.equal(me.name, 'Profile User')
+  assert.equal(me.hasPassword, true)
+  assert.equal(me.preferences.theme, 'system')
+
+  // телефон и адрес из первого заказа попадают в профиль
+  const product = (await api('/catalog')).data.find((p) => p.saleUnitPriceWithVat !== null && p.stock === null)
+  sentMails.length = 0
+  await api('/orders', { method: 'POST', token: client.token, body: orderBody([{ productId: product.id, qty: 1 }]) })
+  const filled = await waitFor(async () => {
+    const p = (await api('/me', { token: client.token })).data
+    return p.phone ? p : null
+  })
+  assert.equal(filled.phone, '060000000')
+  assert.equal(filled.address, 'Chișinău, str. Test 1')
+  await waitFor(() => sentMails.some((m) => m.to === client.email))
+
+  // смена почты меняет и логин
+  const newEmail = `renamed.${Date.now()}@test.local`
+  const upd = await api('/me', {
+    method: 'PUT',
+    token: client.token,
+    body: { name: 'Renamed', email: newEmail, phone: '079111111', address: 'Bălți' },
+  })
+  assert.equal(upd.status, 200, JSON.stringify(upd.data))
+  assert.equal(upd.data.name, 'Renamed')
+  assert.equal((await api('/login', { method: 'POST', body: { username: newEmail, password: 'password123' } })).status, 200)
+  assert.equal((await api('/me', { method: 'PUT', token: client.token, body: { name: '' } })).status, 400)
+  const other = await registerClient()
+  assert.equal((await api('/me', { method: 'PUT', token: client.token, body: { name: 'X', email: other.email } })).status, 409)
+
+  // пароль: нужен текущий
+  const wrong = await api('/me/password', { method: 'PUT', token: client.token, body: { currentPassword: 'nope', newPassword: 'newpassword1' } })
+  assert.equal(wrong.status, 400)
+  const ok = await api('/me/password', { method: 'PUT', token: client.token, body: { currentPassword: 'password123', newPassword: 'newpassword1' } })
+  assert.equal(ok.status, 200)
+  assert.equal((await api('/login', { method: 'POST', body: { username: newEmail, password: 'newpassword1' } })).status, 200)
+
+  // настройки: тема, язык, отказ от писем о заказах
+  assert.equal((await api('/me/preferences', { method: 'PUT', token: client.token, body: { theme: 'neon' } })).status, 400)
+  const prefs = await api('/me/preferences', { method: 'PUT', token: client.token, body: { theme: 'dark', lang: 'en', orderEmails: false } })
+  assert.deepEqual(prefs.data, { theme: 'dark', lang: 'en', orderEmails: false })
+  assert.equal((await api('/me', { token: client.token })).data.preferences.theme, 'dark')
+
+  sentMails.length = 0
+  await api('/orders', { method: 'POST', token: client.token, body: orderBody([{ productId: product.id, qty: 1 }]) })
+  await waitFor(() => sentMails.length >= 1)
+  await wait(300)
+  assert.ok(sentMails.some((m) => m.to === 'admin@test.local'), 'админ письмо получает')
+  assert.ok(!sentMails.some((m) => m.to === newEmail), 'клиент отказался от писем')
+
+  // без Stripe список карт пуст, добавить карту нельзя
+  assert.deepEqual((await api('/me/cards', { token: client.token })).data, [])
+  assert.equal((await api('/me/cards/setup', { method: 'POST', token: client.token })).status, 501)
+})
+
 test('защита от подбора: после лимита запросы отклоняются', async () => {
   // лимит «Забыли пароль?» — 5 в час (×RATE_LIMIT_SCALE в тестах)
   const limit = 5 * Number(process.env.RATE_LIMIT_SCALE)

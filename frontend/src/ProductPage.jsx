@@ -4,6 +4,7 @@ import { formatMDL, stockState, useCatalog } from './catalog'
 import { LangSwitch, useLang } from './i18n'
 import { categoryIcon, imageUrl } from './images'
 import Logo from './Logo'
+import { PriceMain, PromoNote } from './Price'
 import { ProductCard } from './Storefront'
 
 // Страница товара: /#/product/<id>
@@ -87,13 +88,13 @@ export default function ProductPage({ productId, session, cart, onChangeQty, onB
               {product.category} · {product.code}
             </div>
             <h1 className="product-title">{product.name}</h1>
-            {product.priceSource === 'client' && <span className="tag-inline">{t('specialPrice')}</span>}
+            {product.priceSource === 'client' && <span className="tag-inline">{t('specialPrice')}</span>}{' '}
+            {product.promo && <span className="tag-inline tag-inline-promo">−{product.promo.percent}%</span>}
 
             {hasPrice ? (
               <>
-                <div className="price-main product-price">
-                  {formatMDL(product.saleUnitPriceWithVat)} <small>/ {unit(product.saleUnit)}</small>
-                </div>
+                <PriceMain product={product} className="product-price" />
+                <PromoNote product={product} />
                 <table className="spec-table">
                   <tbody>
                     <tr>

@@ -21,6 +21,7 @@ const STEPS = [
   ['migrate-v2.js'],
   ['migrate-v3.js'],
   ['migrate-v4.js'],
+  ['migrate-v5.js'],
   ['seed.js', '--force'],
   ['migrate-translations.js'], // переводы для товаров из сида
   ['migrate-logins.js'], // логины alfa/beta/gamma и пароли клиентам из сида

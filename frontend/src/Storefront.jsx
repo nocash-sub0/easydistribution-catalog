@@ -4,6 +4,7 @@ import { formatMDL, stockState, useCatalog } from './catalog'
 import { APP_NAME, LangSwitch, useLang } from './i18n'
 import { categoryIcon, imageUrl } from './images'
 import Logo from './Logo'
+import { PriceMain, PromoBadge, PromoNote } from './Price'
 import FilterPanel, { EMPTY_FILTERS, applyFilters, hasActiveFilters } from './Filters'
 
 export function ProductCard({ product, qty, onChangeQty }) {
@@ -14,6 +15,7 @@ export function ProductCard({ product, qty, onChangeQty }) {
   return (
     <div className={'card' + (outOfStock ? ' card-out' : '')}>
       {product.priceSource === 'client' && <span className="tag-special">{t('specialPrice')}</span>}
+      <PromoBadge product={product} />
       <a className="card-img" href={productHref}>
         {imageUrl(product) ? (
           <img src={imageUrl(product)} alt={product.name} loading="lazy" />
@@ -30,9 +32,8 @@ export function ProductCard({ product, qty, onChangeQty }) {
 
       {hasPrice ? (
         <>
-          <div className="price-main">
-            {formatMDL(product.saleUnitPriceWithVat)} <small>/ {unit(product.saleUnit)}</small>
-          </div>
+          <PriceMain product={product} />
+          <PromoNote product={product} />
           <div className="price-sub">
             {formatMDL(product.priceWithVat)} / {unit(product.baseUnit)} · {t('inPack')} {product.saleUnitFactor}{' '}
             {unit(product.baseUnit)} · {t('vatIncluded')} {product.vatRate}%
@@ -66,7 +67,7 @@ export function ProductCard({ product, qty, onChangeQty }) {
 // Сколько карточек показывать за раз: 800 карточек сразу заметно тормозят на телефонах
 const PAGE_SIZE = 48
 
-export default function Storefront({ session, cart, onChangeQty, onCheckout, onOpenLogin, onOpenAdmin, onOpenMyOrders, hidden }) {
+export default function Storefront({ session, cart, onChangeQty, onCheckout, onOpenLogin, onOpenAdmin, onOpenProfile, hidden }) {
   const { t, lang, unit } = useLang()
   const { products, loading, error, reload: fetchCatalog } = useCatalog(session, lang)
 
@@ -109,6 +110,8 @@ export default function Storefront({ session, cart, onChangeQty, onCheckout, onO
     }
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, lang))
   }, [products, lang])
+
+  const promoCount = useMemo(() => products.filter((p) => p.promo).length, [products])
 
   const filtered = useMemo(
     () => applyFilters(products, filters, debouncedSearch, lang),
@@ -163,8 +166,8 @@ export default function Storefront({ session, cart, onChangeQty, onCheckout, onO
                     {t('adminPanel')}
                   </button>
                 ) : (
-                  <button className="btn btn-ghost" onClick={onOpenMyOrders}>
-                    {t('myOrders')}
+                  <button className="btn btn-ghost" onClick={onOpenProfile}>
+                    {t('profile')}
                   </button>
                 )}
                 <button className="btn btn-ghost" onClick={logout}>
@@ -232,7 +235,7 @@ export default function Storefront({ session, cart, onChangeQty, onCheckout, onO
 
         {error && (
           <div className="error-box">
-            <p style={{ color: '#dc2626' }}>
+            <p style={{ color: 'var(--danger)' }}>
               {t('loadError')}: {error}
             </p>
             <button className="btn btn-yellow" onClick={fetchCatalog}>
@@ -276,6 +279,7 @@ export default function Storefront({ session, cart, onChangeQty, onCheckout, onO
           {filtersOpen && (
             <FilterPanel
               categories={categories}
+              promoCount={promoCount}
               filters={filters}
               onChange={setFilters}
               onClose={() => toggleFilters(false)}

@@ -15,6 +15,15 @@ export function saveSession(session) {
   localStorage.setItem(SESSION_KEY, JSON.stringify(session))
 }
 
+// Новое имя из профиля — в сохранённую сессию, чтобы шапка показала его сразу
+export function renameSession(name) {
+  const session = getSession()
+  if (!session) return null
+  const next = { ...session, name }
+  saveSession(next)
+  return next
+}
+
 export function logout() {
   localStorage.removeItem(SESSION_KEY)
   window.location.reload()

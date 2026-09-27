@@ -1,10 +1,12 @@
 /* eslint-disable react-refresh/only-export-components */
 import { useLang } from './i18n'
 
-export const EMPTY_FILTERS = { categories: [], priceFrom: '', priceTo: '', inStock: false, sort: 'default' }
+export const EMPTY_FILTERS = { categories: [], priceFrom: '', priceTo: '', inStock: false, promoOnly: false, sort: 'default' }
 
 export function hasActiveFilters(f) {
-  return f.categories.length > 0 || f.priceFrom !== '' || f.priceTo !== '' || f.inStock || f.sort !== 'default'
+  return (
+    f.categories.length > 0 || f.priceFrom !== '' || f.priceTo !== '' || f.inStock || f.promoOnly || f.sort !== 'default'
+  )
 }
 
 // Отбор и сортировка товаров по фильтрам. Категории храним по categoryCode — он не зависит от языка,
@@ -18,6 +20,7 @@ export function applyFilters(products, f, search, lang) {
   const result = products.filter((p) => {
     if (f.categories.length && !f.categories.includes(p.categoryCode)) return false
     if (q && !p.name.toLowerCase().includes(q)) return false
+    if (f.promoOnly && !p.promo) return false
     if (f.inStock && p.stock !== null && p.stock !== undefined && p.stock <= 0) return false
     if (priceFiltered) {
       const price = p.saleUnitPriceWithVat
@@ -38,11 +41,12 @@ export function applyFilters(products, f, search, lang) {
   }
   if (f.sort === 'priceAsc') result.sort(byPrice(1))
   else if (f.sort === 'priceDesc') result.sort(byPrice(-1))
+  else if (f.sort === 'discount') result.sort((a, b) => (b.promo?.percent || 0) - (a.promo?.percent || 0))
   else if (f.sort === 'name') result.sort((a, b) => a.name.localeCompare(b.name, lang))
   return result
 }
 
-export default function FilterPanel({ categories, filters, onChange, onClose }) {
+export default function FilterPanel({ categories, promoCount, filters, onChange, onClose }) {
   const { t } = useLang()
   const set = (patch) => onChange({ ...filters, ...patch })
 
@@ -68,6 +72,7 @@ export default function FilterPanel({ categories, filters, onChange, onClose }) 
           <option value="default">{t('sortDefault')}</option>
           <option value="priceAsc">{t('sortPriceAsc')}</option>
           <option value="priceDesc">{t('sortPriceDesc')}</option>
+          <option value="discount">{t('sortDiscount')}</option>
           <option value="name">{t('sortName')}</option>
         </select>
       </div>
@@ -96,6 +101,11 @@ export default function FilterPanel({ categories, filters, onChange, onClose }) 
       </div>
 
       <div className="filter-group">
+        <label className="filter-check">
+          <input type="checkbox" checked={filters.promoOnly} onChange={(e) => set({ promoOnly: e.target.checked })} />
+          <span className="filter-check-label">{t('promoOnly')}</span>
+          {promoCount > 0 && <span className="filter-count">{promoCount}</span>}
+        </label>
         <label className="filter-check">
           <input type="checkbox" checked={filters.inStock} onChange={(e) => set({ inStock: e.target.checked })} />
           {t('inStockOnly')}
