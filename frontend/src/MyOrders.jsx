@@ -1,37 +1,42 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { apiFetch } from './api'
 import { useLang } from './i18n'
+import { useCachedGet } from './swr'
 
 // История заказов покупателя (вкладка в личном кабинете)
 export default function MyOrders() {
-  const { t, unit } = useLang()
-  const [orders, setOrders] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
+  const { t, tr, unit } = useLang()
+  const { data: orders, loading, error, mutate } = useCachedGet('/my/orders')
+  const [busyId, setBusyId] = useState(null)
+  const [cancelError, setCancelError] = useState(null)
 
-  useEffect(() => {
-    apiFetch('/my/orders')
-      .then((res) => {
-        if (!res.ok) throw new Error(t('serverError'))
-        return res.json()
-      })
-      .then(setOrders)
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  const cancelOrder = async (order) => {
+    if (!window.confirm(t('confirmCancelOrder', { id: order.id }))) return
+    setBusyId(order.id)
+    setCancelError(null)
+    try {
+      const res = await apiFetch(`/my/orders/${order.id}/cancel`, { method: 'POST' })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(tr(data?.error) || t('serverError'))
+      mutate((list) => list.map((o) => (o.id === order.id ? { ...o, status: 'cancelled', canCancel: false } : o)))
+    } catch (err) {
+      setCancelError({ id: order.id, message: err.message })
+    } finally {
+      setBusyId(null)
+    }
+  }
 
   return (
     <>
       {loading && <p>{t('loadingShort')}</p>}
-      {error && <p className="form-error">{error}</p>}
-      {!loading && !error && orders.length === 0 && (
+      {error && <p className="form-error">{tr(error.serverError) || t('serverError')}</p>}
+      {orders?.length === 0 && (
         <div className="panel">
           <p>{t('noMyOrders')}</p>
         </div>
       )}
 
-      {orders.map((o) => (
+      {orders?.map((o) => (
         <div key={o.id} className="panel order-card">
           <div className="order-head">
             <strong>
@@ -58,6 +63,17 @@ export default function MyOrders() {
             </span>
             <span>{o.total.toFixed(2)} MDL</span>
           </div>
+
+          {o.canCancel ? (
+            <div className="order-actions">
+              <button className="btn btn-danger-outline" disabled={busyId === o.id} onClick={() => cancelOrder(o)}>
+                {busyId === o.id ? t('saving') : t('cancelOrder')}
+              </button>
+            </div>
+          ) : (
+            ['paid', 'confirmed', 'shipped'].includes(o.status) && <p className="muted order-hint">{t('cancelPaidHint')}</p>
+          )}
+          {cancelError?.id === o.id && <p className="form-error">{cancelError.message}</p>}
         </div>
       ))}
     </>

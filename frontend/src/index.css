@@ -1326,3 +1326,16 @@ table[border] td {
   background: var(--warn-bg);
   color: var(--warn);
 }
+
+/* ---------- Отмена заказа в профиле ---------- */
+
+.order-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.order-hint {
+  margin: 10px 0 0;
+  text-align: right;
+}

@@ -1,21 +1,23 @@
-import { StrictMode, Suspense, lazy, useEffect, useState } from 'react'
+import { StrictMode, Suspense, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import Storefront from './Storefront.jsx'
 import { getSession, renameSession } from './api'
+import lazyPage from './lazyPage'
 import { LangProvider, useLang } from './i18n'
 import { navigate, useRoute } from './router'
+import { prefetch } from './swr'
 import { applyProfilePreferences } from './theme'
 
 // Витрина грузится сразу, остальные экраны — только когда их открывают.
 // Так гость не скачивает код админки, импорта CSV и оформления заказа.
-const App = lazy(() => import('./App.jsx'))
-const Checkout = lazy(() => import('./Checkout.jsx'))
-const Login = lazy(() => import('./Login.jsx'))
-const Profile = lazy(() => import('./Profile.jsx'))
-const PaymentResult = lazy(() => import('./PaymentResult.jsx'))
-const ProductPage = lazy(() => import('./ProductPage.jsx'))
-const ResetPassword = lazy(() => import('./ResetPassword.jsx'))
+const App = lazyPage(() => import('./App.jsx'))
+const Checkout = lazyPage(() => import('./Checkout.jsx'))
+const Login = lazyPage(() => import('./Login.jsx'))
+const Profile = lazyPage(() => import('./Profile.jsx'))
+const PaymentResult = lazyPage(() => import('./PaymentResult.jsx'))
+const ProductPage = lazyPage(() => import('./ProductPage.jsx'))
+const ResetPassword = lazyPage(() => import('./ResetPassword.jsx'))
 
 const CART_KEY = 'cart'
 const ADMIN_TABS = ['catalog', 'pricelists', 'orders', 'clients', 'promotions']
@@ -58,12 +60,24 @@ function Root() {
   const isAdmin = session?.role === 'admin'
   const isClient = session?.role === 'client'
 
-  // админу заранее, в свободное время браузера, скачиваем код админки — переход в неё без «Загрузка…»
+  // В свободное время браузера заранее скачиваем код остальных страниц (и админки — админу),
+  // а покупателю — его профиль и заказы: переходы открываются сразу, без «Загрузка…»
   useEffect(() => {
-    if (!isAdmin) return
     const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 1500))
-    idle(() => import('./App.jsx'))
-  }, [isAdmin])
+    idle(() => {
+      ProductPage.preload()
+      Checkout.preload()
+      if (isAdmin) App.preload()
+      if (isClient) {
+        Profile.preload()
+        prefetch('/me')
+        prefetch('/my/orders')
+      }
+      if (!session) Login.preload()
+      prefetch('/config')
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, isClient])
 
   // Нет прав на страницу (например, вышли из аккаунта на /#/admin) — возвращаем на витрину
   const forbidden = (path.startsWith('/admin') && !isAdmin) || (path.startsWith('/profile') && !isClient)

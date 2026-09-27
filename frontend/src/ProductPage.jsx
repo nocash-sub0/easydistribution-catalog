@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { apiFetch } from './api'
+import { useMemo } from 'react'
+import { useCachedGet } from './swr'
 import { formatMDL, stockState, useCatalog } from './catalog'
 import { LangSwitch, useLang } from './i18n'
 import { categoryIcon, imageUrl } from './images'
@@ -11,23 +11,13 @@ import { ProductCard } from './Storefront'
 export default function ProductPage({ productId, session, cart, onChangeQty, onBack, onCheckout }) {
   const { t, lang, unit } = useLang()
   const { products, loading } = useCatalog(session, lang)
-  const [description, setDescription] = useState({ key: null, text: '' })
+  // описание открытого раньше товара показывается сразу
+  const { data: descData } = useCachedGet(`/products/${productId}/description?lang=${lang}`)
 
   const product = products.find((p) => p.id === productId)
   const qty = cart[productId] || 0
   const cartCount = Object.values(cart).reduce((sum, n) => sum + n, 0)
 
-  const descKey = `${productId}:${lang}`
-  useEffect(() => {
-    let cancelled = false
-    apiFetch(`/products/${productId}/description?lang=${lang}`)
-      .then((res) => (res.ok ? res.json() : { description: '' }))
-      .then((data) => !cancelled && setDescription({ key: descKey, text: data.description || '' }))
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [productId, lang, descKey])
 
   // похожие — из той же категории, сначала те, что в наличии
   const similar = useMemo(() => {
@@ -155,10 +145,10 @@ export default function ProductPage({ productId, session, cart, onChangeQty, onB
           </div>
         </div>
 
-        {description.key === descKey && description.text && (
+        {descData?.description && (
           <div className="panel product-description">
             <h3>{t('description')}</h3>
-            <p>{description.text}</p>
+            <p>{descData.description}</p>
           </div>
         )}
 

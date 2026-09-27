@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { apiFetch, logout, siteUrl } from './api'
 import { LangSwitch, useLang } from './i18n'
 import Avatar from './Avatar'
 import Logo from './Logo'
 import MyOrders from './MyOrders'
+import { useCachedGet } from './swr'
 import { setTheme, useTheme } from './theme'
 
 async function request(path, method, body, tr) {
@@ -20,16 +21,9 @@ async function request(path, method, body, tr) {
 // Личный кабинет покупателя: заказы, сохранённые карты, личные данные, настройки
 export default function Profile({ tab, onTab, onBack, onNameChange }) {
   const { t, tr } = useLang()
-  const [profile, setProfile] = useState(null)
-  const [error, setError] = useState(null)
-
-  useEffect(() => {
-    apiFetch('/me')
-      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(t('serverError')))))
-      .then(setProfile)
-      .catch((err) => setError(err.message))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  // профиль из кэша показывается сразу, свежий подгружается в фоне
+  const { data: profile, error: loadError, mutate: setProfile } = useCachedGet('/me')
+  const error = loadError ? tr(loadError.serverError) || t('serverError') : null
 
   const tabs = [
     ['orders', t('myOrders')],
@@ -102,27 +96,12 @@ export default function Profile({ tab, onTab, onBack, onNameChange }) {
 
 function CardsTab() {
   const { t, tr } = useLang()
-  const [cards, setCards] = useState(null)
-  const [enabled, setEnabled] = useState(true)
+  const { data: config } = useCachedGet('/config')
+  const { data: cards, error: loadError, mutate: setCards } = useCachedGet('/me/cards')
+  const enabled = config ? !!config.cardPayments : true
   const [busy, setBusy] = useState(null)
-  const [error, setError] = useState(null)
-
-  const load = () =>
-    request('/me/cards', 'GET', undefined, tr)
-      .then(setCards)
-      .catch((err) => {
-        setCards([])
-        setError(err.message)
-      })
-
-  useEffect(() => {
-    apiFetch('/config')
-      .then((res) => res.json())
-      .then((cfg) => setEnabled(!!cfg.cardPayments))
-      .catch(() => {})
-    load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  const [actionError, setError] = useState(null)
+  const error = actionError || (loadError ? tr(loadError.serverError) || t('serverError') : null)
 
   // добавление карты — на защищённой странице Stripe, оттуда он вернёт обратно в профиль
   const addCard = async () => {
@@ -160,7 +139,7 @@ function CardsTab() {
         <p>{t('cardsOff')}</p>
       ) : (
         <>
-          {cards === null && <p>{t('loadingShort')}</p>}
+          {cards === undefined && !error && <p>{t('loadingShort')}</p>}
           {cards?.length === 0 && !error && <p>{t('noCards')}</p>}
           {cards?.map((c) => (
             <div key={c.id} className="saved-card">

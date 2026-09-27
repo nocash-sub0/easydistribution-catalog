@@ -48,6 +48,23 @@ export default function Orders({ active = true }) {
     }
   }
 
+  const deleteOrder = async (order) => {
+    const paidByCard = order.paymentMethod === 'card' && ['paid', 'confirmed', 'shipped', 'delivered'].includes(order.status)
+    const text = t('confirmDeleteOrder', { id: order.id }) + (paidByCard ? '\n\n' + t('confirmDeletePaid') : '')
+    if (!window.confirm(text)) return
+    setSavingId(order.id)
+    try {
+      const res = await apiFetch(`/orders/${order.id}`, { method: 'DELETE' })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(tr(data?.error) || t('serverError'))
+      setOrders((prev) => prev.filter((o) => o.id !== order.id))
+    } catch (err) {
+      alert(err.message)
+    } finally {
+      setSavingId(null)
+    }
+  }
+
   const visible = statusFilter === 'all' ? orders : orders.filter((o) => o.status === statusFilter)
 
   return (
@@ -85,6 +102,7 @@ export default function Orders({ active = true }) {
                 <th>{t('colStatus')}</th>
                 <th>{t('colItems')}</th>
                 <th>{t('colTotal')}</th>
+                <th />
               </tr>
             </thead>
             <tbody>
@@ -125,6 +143,16 @@ export default function Orders({ active = true }) {
                   </td>
                   <td>
                     <strong>{o.total.toFixed(2)} MDL</strong>
+                  </td>
+                  <td>
+                    <button
+                      className="btn btn-danger-outline"
+                      disabled={savingId === o.id}
+                      title={t('deleteOrder')}
+                      onClick={() => deleteOrder(o)}
+                    >
+                      {t('delete')}
+                    </button>
                   </td>
                 </tr>
               ))}

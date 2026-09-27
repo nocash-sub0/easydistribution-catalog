@@ -346,6 +346,15 @@ export const messages = {
     errPromoCategory: 'Такой категории нет',
     errPromoTarget: 'Выберите, на что действует акция',
     errPromoNotFound: 'Акция не найдена',
+
+    // отмена и удаление заказов
+    cancelOrder: 'Отменить заказ',
+    confirmCancelOrder: 'Отменить заказ №{id}?',
+    cancelPaidHint: 'Оплаченный или отправленный заказ отменить нельзя — свяжитесь с нами',
+    deleteOrder: 'Удалить заказ',
+    confirmDeleteOrder: 'Удалить заказ №{id} насовсем? Товар из неотправленного заказа вернётся на склад.',
+    confirmDeletePaid: 'Заказ оплачен картой — деньги клиенту автоматически не вернутся.',
+    errCannotCancel: 'Этот заказ уже нельзя отменить',
   },
 
   ro: {
@@ -687,6 +696,15 @@ export const messages = {
     errPromoCategory: 'Categoria nu există',
     errPromoTarget: 'Alegeți la ce se aplică promoția',
     errPromoNotFound: 'Promoția nu a fost găsită',
+
+    // отмена и удаление заказов
+    cancelOrder: 'Anulează comanda',
+    confirmCancelOrder: 'Anulați comanda nr. {id}?',
+    cancelPaidHint: 'O comandă plătită sau expediată nu poate fi anulată — contactați-ne',
+    deleteOrder: 'Șterge comanda',
+    confirmDeleteOrder: 'Ștergeți definitiv comanda nr. {id}? Produsele dintr-o comandă neexpediată revin în stoc.',
+    confirmDeletePaid: 'Comanda este plătită cu cardul — banii nu se returnează automat clientului.',
+    errCannotCancel: 'Această comandă nu mai poate fi anulată',
   },
 
   en: {
@@ -1028,5 +1046,14 @@ export const messages = {
     errPromoCategory: 'No such category',
     errPromoTarget: 'Choose what the promotion applies to',
     errPromoNotFound: 'Promotion not found',
+
+    // отмена и удаление заказов
+    cancelOrder: 'Cancel order',
+    confirmCancelOrder: 'Cancel order #{id}?',
+    cancelPaidHint: 'A paid or shipped order cannot be cancelled — please contact us',
+    deleteOrder: 'Delete order',
+    confirmDeleteOrder: 'Delete order #{id} permanently? Items from an order that has not shipped go back to stock.',
+    confirmDeletePaid: 'The order was paid by card — the money is not refunded to the customer automatically.',
+    errCannotCancel: 'This order can no longer be cancelled',
   },
 }

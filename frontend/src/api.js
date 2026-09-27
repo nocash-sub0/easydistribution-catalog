@@ -26,6 +26,14 @@ export function renameSession(name) {
 
 export function logout() {
   localStorage.removeItem(SESSION_KEY)
+  // кэш ответов (swr.js) — там заказы и профиль
+  try {
+    for (let i = sessionStorage.length - 1; i >= 0; i--) {
+      if (sessionStorage.key(i).startsWith('swr:')) sessionStorage.removeItem(sessionStorage.key(i))
+    }
+  } catch {
+    // не критично
+  }
   window.location.reload()
 }
 

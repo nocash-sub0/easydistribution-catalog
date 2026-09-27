@@ -81,6 +81,7 @@ const SERVER_ERRORS = {
   'Categorie inexistentă': 'errPromoCategory',
   'Promoție invalidă': 'errPromoTarget',
   'Promoția nu a fost găsită': 'errPromoNotFound',
+  'Comanda nu mai poate fi anulată': 'errCannotCancel',
 }
 
 // Единицы измерения товаров: переводим только известные, остальные показываем как есть

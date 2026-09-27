@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { apiFetch, logout, siteUrl } from './api'
+import { useCatalog } from './catalog'
 import { LangSwitch, useLang } from './i18n'
+import { peekCache, useCachedGet } from './swr'
 import Logo from './Logo'
 
 function formatMDL(value) {
@@ -9,28 +11,24 @@ function formatMDL(value) {
 
 export default function Checkout({ session, cart, onBack, onDone, onOpenLogin }) {
   const { t, tr, unit, lang } = useLang()
-  const [products, setProducts] = useState([])
-  const [loading, setLoading] = useState(true)
+  // каталог — тот же, что на витрине: из кэша сразу, свежие цены в фоне (итог всё равно считает сервер)
+  const { products, loading } = useCatalog(session, lang)
+  const { data: config } = useCachedGet('/config')
+  const cardEnabled = !!config?.cardPayments
 
-  const [contactName, setContactName] = useState(session?.name || '')
-  const [phone, setPhone] = useState('')
-  const [address, setAddress] = useState('')
+  // телефон и адрес из профиля — чтобы не вводить каждый раз; из кэша — без ожидания сервера
+  const cachedMe = session?.role === 'client' ? peekCache('/me') : null
+  const [contactName, setContactName] = useState(session?.name || cachedMe?.name || '')
+  const [phone, setPhone] = useState(cachedMe?.phone || '')
+  const [address, setAddress] = useState(cachedMe?.address || '')
   const [comment, setComment] = useState('')
   const [paymentMethod, setPaymentMethod] = useState('cash')
-  const [cardEnabled, setCardEnabled] = useState(false)
 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [result, setResult] = useState(null)
 
-  // Свежие цены берём с сервера, чтобы итог совпадал с тем, что посчитает бэкенд
   useEffect(() => {
-    apiFetch('/config')
-      .then((res) => res.json())
-      .then((cfg) => setCardEnabled(!!cfg.cardPayments))
-      .catch(() => {})
-
-    // телефон и адрес из профиля — чтобы не вводить каждый раз
     if (session?.role === 'client') {
       apiFetch('/me')
         .then((res) => (res.ok ? res.json() : null))
@@ -43,11 +41,6 @@ export default function Checkout({ session, cart, onBack, onDone, onOpenLogin })
         .catch(() => {})
     }
 
-    apiFetch(`/catalog?lang=${lang}`)
-      .then((res) => res.json())
-      .then(setProducts)
-      .catch(() => setError(t('loadError')))
-      .finally(() => setLoading(false))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

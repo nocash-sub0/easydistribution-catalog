@@ -446,6 +446,51 @@ test('профиль: данные, смена почты и пароля, на�
   assert.equal((await api('/me/cards/setup', { method: 'POST', token: client.token })).status, 501)
 })
 
+test('отмена заказа клиентом и удаление заказа админом', async () => {
+  const a = await registerClient('Cancel A')
+  const b = await registerClient('Cancel B')
+  const product = (await api('/catalog')).data[7]
+  const edit = await api(`/admin/products/${product.id}`, { token: adminToken })
+  await api(`/catalog/products/${product.id}`, { method: 'PUT', token: adminToken, body: { ...edit.data, stock: 10 } })
+  const stock = async () => (await api('/catalog')).data.find((p) => p.id === product.id).stock
+  const place = (token, qty) => api('/orders', { method: 'POST', token, body: orderBody([{ productId: product.id, qty }]) })
+
+  // отмена своего нового заказа возвращает товар и пишет админу
+  const o1 = await place(a.token, 3)
+  assert.equal(o1.status, 201)
+  assert.equal(await stock(), 7)
+  const mine = (await api('/my/orders', { token: a.token })).data.find((o) => o.id === o1.data.id)
+  assert.equal(mine.canCancel, true)
+  assert.equal(mine.items.length, 1, 'позиции заказа приходят вместе с заказом')
+
+  assert.equal((await api(`/my/orders/${o1.data.id}/cancel`, { method: 'POST', token: b.token })).status, 404, 'чужой заказ')
+  sentMails.length = 0
+  const cancel = await api(`/my/orders/${o1.data.id}/cancel`, { method: 'POST', token: a.token })
+  assert.equal(cancel.status, 200, JSON.stringify(cancel.data))
+  assert.equal(await stock(), 10)
+  await waitFor(() => sentMails.some((m) => /отменил заказ/.test(m.subject)))
+  assert.equal((await api(`/my/orders/${o1.data.id}/cancel`, { method: 'POST', token: a.token })).status, 400, 'уже отменён')
+  assert.equal((await api('/my/orders', { token: a.token })).data.find((o) => o.id === o1.data.id).canCancel, false)
+
+  // отправленный заказ клиент отменить не может
+  const o2 = await place(a.token, 2)
+  await api(`/orders/${o2.data.id}/status`, { method: 'PATCH', token: adminToken, body: { status: 'shipped' } })
+  assert.equal((await api(`/my/orders/${o2.data.id}/cancel`, { method: 'POST', token: a.token })).status, 400)
+
+  // админ удаляет: активный заказ возвращает товар, отправленный — нет
+  const o3 = await place(b.token, 4)
+  assert.equal(await stock(), 4)
+  assert.equal((await api(`/orders/${o3.data.id}`, { method: 'DELETE', token: b.token })).status, 403)
+  assert.equal((await api(`/orders/${o3.data.id}`, { method: 'DELETE', token: adminToken })).status, 200)
+  assert.equal(await stock(), 8)
+  assert.equal((await api(`/orders/${o2.data.id}`, { method: 'DELETE', token: adminToken })).status, 200)
+  assert.equal(await stock(), 8, 'отправленный товар на склад не возвращается')
+  assert.equal((await api(`/orders/${o3.data.id}`, { method: 'DELETE', token: adminToken })).status, 404)
+  const all = (await api('/orders', { token: adminToken })).data
+  assert.ok(!all.some((o) => o.id === o2.data.id || o.id === o3.data.id))
+  assert.equal((await api('/my/orders', { token: b.token })).data.length, 0)
+})
+
 test('защита от подбора: после лимита запросы отклоняются', async () => {
   // лимит «Забыли пароль?» — 5 в час (×RATE_LIMIT_SCALE в тестах)
   const limit = 5 * Number(process.env.RATE_LIMIT_SCALE)

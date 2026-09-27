@@ -290,6 +290,7 @@ const PAYMENT_METHODS = ['cash', 'invoice', 'card']
 const ORDER_MAIL = {
   ru: {
     adminSubject: (id, total) => `Новый заказ №${id} на ${total} MDL`,
+    cancelSubject: (id) => `Клиент отменил заказ №${id}`,
     clientSubject: (id) => `Ваш заказ №${id} принят — Catalog`,
     clientIntro: 'Спасибо за заказ! Мы свяжемся с вами для подтверждения.',
     order: 'Заказ',
@@ -303,6 +304,7 @@ const ORDER_MAIL = {
   },
   ro: {
     adminSubject: (id, total) => `Comandă nouă nr. ${id} de ${total} MDL`,
+    cancelSubject: (id) => `Clientul a anulat comanda nr. ${id}`,
     clientSubject: (id) => `Comanda dvs. nr. ${id} a fost primită — Catalog`,
     clientIntro: 'Vă mulțumim pentru comandă! Vă vom contacta pentru confirmare.',
     order: 'Comanda',
@@ -316,6 +318,7 @@ const ORDER_MAIL = {
   },
   en: {
     adminSubject: (id, total) => `New order #${id} for ${total} MDL`,
+    cancelSubject: (id) => `Customer cancelled order #${id}`,
     clientSubject: (id) => `Your order #${id} has been received — Catalog`,
     clientIntro: 'Thank you for your order! We will contact you to confirm it.',
     order: 'Order',
@@ -383,6 +386,28 @@ async function notifyNewOrder(orderId, lang) {
     }
   } catch (err) {
     console.error('Order mail error:', err.message)
+  }
+}
+
+// Письмо админу, что покупатель сам отменил заказ (в фоне)
+async function notifyOrderCancelled(orderId) {
+  if (!mailer) return
+  try {
+    const [[order]] = await pool.query(
+      `SELECT o.*, c.name AS client_name FROM orders o JOIN clients c ON c.id = o.client_id WHERE o.id = ?`,
+      [orderId]
+    )
+    if (!order) return
+    const [items] = await pool.query('SELECT product_name, sale_unit, qty, unit_price FROM order_items WHERE order_id = ?', [orderId])
+    const m = ORDER_MAIL[process.env.ADMIN_LANG] || ORDER_MAIL.ru
+    await mailer.sendMail({
+      from: process.env.MAIL_FROM || process.env.SMTP_USER,
+      to: process.env.ADMIN_EMAIL || process.env.SMTP_USER,
+      subject: m.cancelSubject(order.id),
+      text: orderText(order, items, m, null) + `\n\n${FRONTEND_URL}/#/admin/orders`,
+    })
+  } catch (err) {
+    console.error('Cancel mail error:', err.message)
   }
 }
 
@@ -536,34 +561,45 @@ app.get('/orders/:id', requireRole('client'), async (req, res) => {
 })
 
 // Заказы с позициями; clientId = null — все заказы (для админа)
+// Покупатель может отменить заказ сам, пока его не оплатили и не отправили
+function canClientCancel(order) {
+  return ['new', 'pending_payment'].includes(order.status) || (order.status === 'confirmed' && order.paymentMethod !== 'card')
+}
+
+// Заказы с позициями одним запросом: база далеко, каждый круг до неё заметен
 async function loadOrders(clientId) {
-  const [orders] = await pool.query(
+  const [rows] = await pool.query(
     `SELECT o.id, o.status, o.payment_method AS paymentMethod, o.contact_name AS contactName, o.phone,
-            o.address, o.comment, o.total, o.created_at AS createdAt, c.name AS clientName
-     FROM orders o JOIN clients c ON c.id = o.client_id
-     ${clientId ? 'WHERE o.client_id = ?' : ''}
-     ORDER BY o.id DESC LIMIT 200`,
+            o.address, o.comment, o.total, o.created_at AS createdAt, c.name AS clientName,
+            i.product_name AS itemName, i.sale_unit AS itemUnit, i.qty AS itemQty, i.unit_price AS itemPrice
+     FROM (SELECT * FROM orders ${clientId ? 'WHERE client_id = ?' : ''} ORDER BY id DESC LIMIT 200) o
+     JOIN clients c ON c.id = o.client_id
+     LEFT JOIN order_items i ON i.order_id = o.id
+     ORDER BY o.id DESC, i.id`,
     clientId ? [clientId] : []
   )
-  const ids = orders.map((o) => o.id)
-  const [items] = ids.length
-    ? await pool.query(
-        `SELECT order_id AS orderId, product_name AS name, sale_unit AS saleUnit, qty, unit_price AS unitPrice
-         FROM order_items WHERE order_id IN (?)`,
-        [ids]
-      )
-    : [[]]
-  return orders.map((o) => ({
-    ...o,
-    total: Number(o.total),
-    items: items.filter((i) => i.orderId === o.id).map((i) => ({ ...i, unitPrice: Number(i.unitPrice) })),
-  }))
+  const orders = []
+  const byId = new Map()
+  for (const r of rows) {
+    let order = byId.get(r.id)
+    if (!order) {
+      const { itemName, itemUnit, itemQty, itemPrice, ...o } = r
+      order = { ...o, total: Number(o.total), items: [] }
+      byId.set(r.id, order)
+      orders.push(order)
+    }
+    if (r.itemName !== null) {
+      order.items.push({ name: r.itemName, saleUnit: r.itemUnit, qty: r.itemQty, unitPrice: Number(r.itemPrice) })
+    }
+  }
+  return orders
 }
 
 // «Мои заказы» — только заказы вошедшего клиента
 app.get('/my/orders', requireRole('client'), async (req, res) => {
   try {
-    res.json(await loadOrders(req.user.clientId))
+    const orders = await loadOrders(req.user.clientId)
+    res.json(orders.map((o) => ({ ...o, canCancel: canClientCancel(o) })))
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: 'Eroare server' })
@@ -581,6 +617,17 @@ app.get('/orders', requireAdmin, async (req, res) => {
 
 const ORDER_STATUSES = ['new', 'pending_payment', 'paid', 'confirmed', 'shipped', 'delivered', 'cancelled']
 
+// Остатки по позициям заказа: +1 — вернуть на склад, -1 — снова списать
+async function adjustStock(conn, orderId, sign) {
+  await conn.query(
+    `UPDATE products p JOIN (SELECT product_id, SUM(qty) AS qty FROM order_items WHERE order_id = ? GROUP BY product_id) i
+       ON i.product_id = p.id
+     SET p.stock = GREATEST(p.stock + ? * i.qty, 0)
+     WHERE p.stock IS NOT NULL`,
+    [orderId, sign]
+  )
+}
+
 // Меняет статус заказа и поправляет остатки: отмена возвращает товар на склад,
 // снятие отмены снова списывает. onlyFrom — менять только если текущий статус такой.
 // Возвращает false, если заказа нет (или статус не совпал с onlyFrom).
@@ -595,15 +642,7 @@ async function setOrderStatus(orderId, status, onlyFrom = null) {
     }
     const prev = rows[0].status
     const sign = prev !== 'cancelled' && status === 'cancelled' ? 1 : prev === 'cancelled' && status !== 'cancelled' ? -1 : 0
-    if (sign !== 0) {
-      await conn.query(
-        `UPDATE products p JOIN (SELECT product_id, SUM(qty) AS qty FROM order_items WHERE order_id = ? GROUP BY product_id) i
-           ON i.product_id = p.id
-         SET p.stock = GREATEST(p.stock + ? * i.qty, 0)
-         WHERE p.stock IS NOT NULL`,
-        [orderId, sign]
-      )
-    }
+    if (sign !== 0) await adjustStock(conn, orderId, sign)
     await conn.query('UPDATE orders SET status = ? WHERE id = ?', [status, orderId])
     await conn.commit()
     return true
@@ -626,6 +665,65 @@ app.patch('/orders/:id/status', requireAdmin, async (req, res) => {
     console.error(err)
     res.status(500).json({ error: 'Eroare server' })
   }
+})
+
+// Покупатель отменяет свой заказ (пока он не оплачен и не отправлен); товар возвращается на склад
+app.post('/my/orders/:id/cancel', requireRole('client'), async (req, res) => {
+  try {
+    const orderId = parseInt(req.params.id)
+    const [[order]] = await pool.query(
+      'SELECT id, status, payment_method AS paymentMethod, stripe_session_id FROM orders WHERE id = ? AND client_id = ?',
+      [orderId, req.user.clientId]
+    )
+    if (!order) return res.status(404).json({ error: 'Comanda nu a fost găsită' })
+    if (!canClientCancel(order)) return res.status(400).json({ error: 'Comanda nu mai poate fi anulată' })
+
+    // неоплаченная оплата картой: закрываем страницу Stripe, чтобы по ней уже нельзя было заплатить
+    if (order.status === 'pending_payment' && order.stripe_session_id && stripe) {
+      const session = await stripe.checkout.sessions.retrieve(order.stripe_session_id).catch(() => null)
+      if (session?.payment_status === 'paid') {
+        await pool.query("UPDATE orders SET status = 'paid' WHERE id = ? AND status = 'pending_payment'", [orderId])
+        return res.status(400).json({ error: 'Comanda nu mai poate fi anulată' })
+      }
+      if (session?.status === 'open') await stripe.checkout.sessions.expire(session.id).catch(() => {})
+    }
+
+    // onlyFrom: если статус успел поменяться (админ отправил заказ), отмена не пройдёт
+    const done = await setOrderStatus(orderId, 'cancelled', order.status)
+    if (!done) return res.status(409).json({ error: 'Comanda nu mai poate fi anulată' })
+    notifyOrderCancelled(orderId)
+    res.json({ id: orderId, status: 'cancelled' })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Eroare server' })
+  }
+})
+
+// Админ удаляет заказ совсем; товар из ещё не отправленного заказа возвращается на склад
+app.delete('/orders/:id', requireAdmin, async (req, res) => {
+  const orderId = parseInt(req.params.id)
+  let sessionToClose = null
+  const conn = await pool.getConnection()
+  try {
+    await conn.beginTransaction()
+    const [[order]] = await conn.query('SELECT status, stripe_session_id FROM orders WHERE id = ? FOR UPDATE', [orderId])
+    if (!order) {
+      await conn.rollback()
+      return res.status(404).json({ error: 'Comanda nu a fost găsită' })
+    }
+    if (!['cancelled', 'shipped', 'delivered'].includes(order.status)) await adjustStock(conn, orderId, 1)
+    if (order.status === 'pending_payment') sessionToClose = order.stripe_session_id
+    await conn.query('DELETE FROM orders WHERE id = ?', [orderId])
+    await conn.commit()
+  } catch (err) {
+    await conn.rollback().catch(() => {})
+    console.error(err)
+    return res.status(500).json({ error: 'Eroare server' })
+  } finally {
+    conn.release()
+  }
+  if (sessionToClose && stripe) await stripe.checkout.sessions.expire(sessionToClose).catch(() => {})
+  res.json({ success: true })
 })
 
 // --- Каталог ---
