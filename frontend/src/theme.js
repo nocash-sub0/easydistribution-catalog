@@ -58,7 +58,7 @@ export async function applyProfilePreferences(setLang) {
     if (!res.ok) return
     const { preferences } = await res.json()
     if (preferences.theme) setTheme(preferences.theme)
-    if (preferences.lang) setLang(preferences.lang)
+    if (preferences.lang) setLang(preferences.lang, { save: false })
   } catch {
     // не критично: останутся текущие тема и язык
   }

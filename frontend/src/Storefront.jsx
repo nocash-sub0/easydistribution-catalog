@@ -3,6 +3,7 @@ import { logout } from './api'
 import { formatMDL, stockState, useCatalog } from './catalog'
 import { APP_NAME, LangSwitch, useLang } from './i18n'
 import { categoryIcon, imageUrl } from './images'
+import Avatar from './Avatar'
 import Logo from './Logo'
 import { PriceMain, PromoBadge, PromoNote } from './Price'
 import FilterPanel, { EMPTY_FILTERS, applyFilters, hasActiveFilters } from './Filters'
@@ -160,14 +161,17 @@ export default function Storefront({ session, cart, onChangeQty, onCheckout, onO
           <div className="header-actions">
             {session ? (
               <>
-                <span className="user-name">{session.name}</span>
                 {session.role === 'admin' ? (
-                  <button className="btn btn-ghost" onClick={onOpenAdmin}>
-                    {t('adminPanel')}
-                  </button>
+                  <>
+                    <span className="user-name">{session.name}</span>
+                    <button className="btn btn-ghost" onClick={onOpenAdmin}>
+                      {t('adminPanel')}
+                    </button>
+                  </>
                 ) : (
-                  <button className="btn btn-ghost" onClick={onOpenProfile}>
-                    {t('profile')}
+                  <button className="user-chip" onClick={onOpenProfile} title={t('profile')} aria-label={t('profile')}>
+                    <Avatar name={session.name} />
+                    <span className="user-name">{session.name}</span>
                   </button>
                 )}
                 <button className="btn btn-ghost" onClick={logout}>

@@ -73,6 +73,12 @@ function Root() {
     else if (path === '/orders') navigate(isClient ? '/profile/orders' : '/')
   }, [forbidden, path, isClient])
 
+  useEffect(() => {
+    applyProfilePreferences(setLang)
+    // только при открытии сайта; после входа — в handleLogin
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const handleLogin = (newSession) => {
     setSession(newSession)
     setShowLogin(false)

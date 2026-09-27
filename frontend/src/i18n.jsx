@@ -1,5 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState } from 'react'
+import { apiFetch, getSession } from './api'
 import { messages } from './messages'
 
 export const APP_NAME = 'Catalog'
@@ -18,6 +19,17 @@ function initialLang() {
     if (saved && messages[saved]) return saved
   } catch {
     // localStorage недоступен — используем язык по умолчанию
+  }
+  return browserLang()
+}
+
+// Первый заход: язык из настроек браузера (ro/mo — румынский, ru, en), иначе русский
+function browserLang() {
+  const list = navigator.languages?.length ? navigator.languages : [navigator.language || '']
+  for (const tag of list) {
+    const code = tag.toLowerCase().split('-')[0]
+    if (code === 'mo') return 'ro'
+    if (messages[code]) return code
   }
   return 'ru'
 }
@@ -84,8 +96,16 @@ export function LangProvider({ children }) {
     return initial
   })
 
-  const setLang = (code) => {
+  // save: false — язык пришёл из профиля или уже сохраняется там, повторно не отправляем
+  const setLang = (code, { save = true } = {}) => {
     setLangState(code)
+    if (save && getSession()?.role === 'client') {
+      apiFetch('/me/preferences', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lang: code }),
+      }).catch(() => {})
+    }
     try {
       localStorage.setItem('lang', code)
     } catch {

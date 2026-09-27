@@ -744,6 +744,10 @@ button {
     display: none;
   }
 
+  .user-chip {
+    padding: 3px;
+  }
+
   .grid {
     grid-template-columns: repeat(2, 1fr);
     gap: 10px;
@@ -1119,18 +1123,37 @@ table[border] td {
   margin: 14px 0;
 }
 
-.profile-avatar {
-  width: 48px;
-  height: 48px;
+.avatar {
   border-radius: 50%;
   background: var(--yellow);
   color: #ffffff;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 22px;
   font-weight: 700;
   flex-shrink: 0;
+  line-height: 1;
+}
+
+/* имя с аватаром в шапке — кнопка, открывающая профиль */
+.user-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 20px;
+  padding: 3px 12px 3px 3px;
+  color: #ffffff;
+}
+
+.user-chip:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.user-chip .avatar {
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.6);
 }
 
 .profile-tabs {

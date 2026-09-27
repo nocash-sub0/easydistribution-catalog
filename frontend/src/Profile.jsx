@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { apiFetch, logout } from './api'
 import { LangSwitch, useLang } from './i18n'
+import Avatar from './Avatar'
 import Logo from './Logo'
 import MyOrders from './MyOrders'
 import { setTheme, useTheme } from './theme'
@@ -57,7 +58,7 @@ export default function Profile({ tab, onTab, onBack, onNameChange }) {
 
         {profile && (
           <div className="profile-head">
-            <div className="profile-avatar">{(profile.name || '?').trim().charAt(0).toUpperCase()}</div>
+            <Avatar name={profile.name} size={48} />
             <div>
               <strong>{profile.name}</strong>
               <div className="muted">{profile.email || profile.login}</div>
@@ -345,7 +346,7 @@ function PrefsTab({ preferences, onSaved, request }) {
         <select
           value={lang}
           onChange={(e) => {
-            setLang(e.target.value)
+            setLang(e.target.value, { save: false })
             save({ lang: e.target.value })
           }}
         >
