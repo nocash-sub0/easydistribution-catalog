@@ -1,3 +1,5 @@
+import { useEffect, useRef } from 'react'
+
 export const API_URL = import.meta.env.VITE_API_URL
 const SESSION_KEY = 'session'
 
@@ -27,4 +29,15 @@ export async function apiFetch(path, options = {}) {
   const res = await fetch(`${API_URL}${path}`, { ...options, headers })
   if (res.status === 401 && session) logout()
   return res
+}
+
+// Вкладки админки остаются смонтированными: при возврате на вкладку данные уже на экране,
+// а свежие подгружаются в фоне без индикатора загрузки
+export function useRefreshWhenShown(active, refresh) {
+  const wasActive = useRef(active)
+  useEffect(() => {
+    if (active && !wasActive.current) refresh()
+    wasActive.current = active
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active])
 }

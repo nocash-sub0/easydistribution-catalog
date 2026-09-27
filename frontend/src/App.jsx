@@ -5,7 +5,7 @@ import PriceLists from './PriceLists'
 import Orders from './Orders'
 import Clients from './Clients'
 import ProductEditor from './ProductEditor'
-import { apiFetch, logout } from './api'
+import { apiFetch, logout, useRefreshWhenShown } from './api'
 import { categoryIcon, deleteProductImage, imageUrl, uploadProductImage } from './images'
 import { LangSwitch, useLang } from './i18n'
 import Logo from './Logo'
@@ -225,8 +225,9 @@ function App({ tab, onTab, onOpenShop }) {
   const [importResult, setImportResult] = useState(null)
   const [showCsvImport, setShowCsvImport] = useState(false)
 
-  const fetchCatalog = () => {
-    setLoading(true)
+  // silent — обновить уже показанный каталог без скелетона (после правок и при возврате на вкладку)
+  const fetchCatalog = ({ silent = false } = {}) => {
+    if (!silent) setLoading(true)
     setError(null)
     const url = clientId
       ? `/catalog?clientId=${clientId}`
@@ -251,6 +252,8 @@ function App({ tab, onTab, onOpenShop }) {
     fetchCatalog()
   }, [clientId])
 
+  useRefreshWhenShown(activeTab === 'catalog', () => fetchCatalog({ silent: true }))
+
   useEffect(() => {
     apiFetch('/clients')
       .then((res) => res.json())
@@ -273,7 +276,7 @@ function App({ tab, onTab, onOpenShop }) {
         body: JSON.stringify({ price: newPrice }),
       })
       if (!res.ok) throw new Error(t('savePriceFail'))
-      fetchCatalog()
+      fetchCatalog({ silent: true })
     } catch (err) {
       alert(t('saveError') + ': ' + err.message)
     } finally {
@@ -311,7 +314,7 @@ function App({ tab, onTab, onOpenShop }) {
         price: '',
       })
       setShowForm(false)
-      fetchCatalog()
+      fetchCatalog({ silent: true })
     } catch (err) {
       setFormError(err.message)
     }
@@ -373,7 +376,7 @@ function App({ tab, onTab, onOpenShop }) {
       })
       const data = await res.json()
       setImportResult(data)
-      fetchCatalog()
+      fetchCatalog({ silent: true })
     } catch (err) {
       alert(t('importError') + ': ' + err.message)
     }
@@ -414,13 +417,17 @@ function App({ tab, onTab, onOpenShop }) {
         </div>
       </div>
 
-      {activeTab === 'clients' ? (
-        <Clients />
-      ) : activeTab === 'orders' ? (
-        <Orders />
-      ) : activeTab === 'pricelists' ? (
-        <PriceLists />
-      ) : (
+      {/* все вкладки загружаются сразу и параллельно, скрытые остаются в памяти */}
+      <div hidden={activeTab !== 'clients'}>
+        <Clients active={activeTab === 'clients'} />
+      </div>
+      <div hidden={activeTab !== 'orders'}>
+        <Orders active={activeTab === 'orders'} />
+      </div>
+      <div hidden={activeTab !== 'pricelists'}>
+        <PriceLists active={activeTab === 'pricelists'} />
+      </div>
+      {activeTab === 'catalog' && (
         <div style={{ padding: '20px', fontFamily: 'sans-serif' }}>
           <style>{`
             @keyframes pulse {
@@ -580,7 +587,7 @@ function App({ tab, onTab, onOpenShop }) {
           {error && (
             <div style={{ padding: '20px', border: '1px solid red', borderRadius: '4px' }}>
               <p style={{ color: 'red' }}>{t('loadError')}: {error}</p>
-              <button onClick={fetchCatalog}>{t('retry')}</button>
+              <button onClick={() => fetchCatalog()}>{t('retry')}</button>
             </div>
           )}
 
@@ -634,7 +641,7 @@ function App({ tab, onTab, onOpenShop }) {
               productId={editProductId}
               categories={categories}
               onClose={() => setEditProductId(null)}
-              onSaved={fetchCatalog}
+              onSaved={() => fetchCatalog({ silent: true })}
             />
           )}
         </div>

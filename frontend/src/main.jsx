@@ -55,6 +55,13 @@ function Root() {
   const isAdmin = session?.role === 'admin'
   const isClient = session?.role === 'client'
 
+  // админу заранее, в свободное время браузера, скачиваем код админки — переход в неё без «Загрузка…»
+  useEffect(() => {
+    if (!isAdmin) return
+    const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 1500))
+    idle(() => import('./App.jsx'))
+  }, [isAdmin])
+
   // Нет прав на страницу (например, вышли из аккаунта на /#/admin) — возвращаем на витрину
   const forbidden = (path.startsWith('/admin') && !isAdmin) || (path === '/orders' && !isClient)
   useEffect(() => {

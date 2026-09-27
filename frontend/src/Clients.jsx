@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo } from 'react'
-import { apiFetch } from './api'
+import { apiFetch, useRefreshWhenShown } from './api'
 import { useLang } from './i18n'
 
 // Вкладка «Клиенты» в админке
-export default function Clients() {
+export default function Clients({ active = true }) {
   const { t, tr } = useLang()
   const [clients, setClients] = useState([])
   const [priceLists, setPriceLists] = useState([])
@@ -28,6 +28,8 @@ export default function Clients() {
     load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useRefreshWhenShown(active, load)
 
   const defaultList = priceLists.find((p) => p.isDefault)
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { apiFetch } from './api'
+import { apiFetch, useRefreshWhenShown } from './api'
 import { useLang } from './i18n'
 
 function formatMDL(value) {
@@ -7,7 +7,7 @@ function formatMDL(value) {
   return `${value.toFixed(2)} MDL`
 }
 
-export default function PriceLists() {
+export default function PriceLists({ active = true }) {
   const { t, tr } = useLang()
   const [priceLists, setPriceLists] = useState([])
   const [selectedListId, setSelectedListId] = useState(null)
@@ -40,8 +40,8 @@ export default function PriceLists() {
       .then(setClients)
   }
 
-  const fetchItems = (listId) => {
-    setLoadingItems(true)
+  const fetchItems = (listId, { silent = false } = {}) => {
+    if (!silent) setLoadingItems(true)
     apiFetch(`/price-lists/${listId}/items`)
       .then((res) => res.json())
       .then((data) => {
@@ -58,6 +58,13 @@ export default function PriceLists() {
   useEffect(() => {
     if (selectedListId) fetchItems(selectedListId)
   }, [selectedListId])
+
+  // цены и клиенты могли поменяться на других вкладках
+  useRefreshWhenShown(active, () => {
+    fetchPriceLists()
+    fetchClients()
+    if (selectedListId) fetchItems(selectedListId, { silent: true })
+  })
 
   const handleCreateList = async () => {
     if (!newListName.trim()) return

@@ -116,7 +116,7 @@ export default function Storefront({ session, cart, onChangeQty, onCheckout, onO
   )
 
   // «Показать ещё»: при смене фильтров или поиска снова показываем первую страницу
-  const filterKey = `${lang}|${JSON.stringify(filters)}|${debouncedSearch}`
+  const filterKey = `${JSON.stringify(filters)}|${debouncedSearch}`
   const [more, setMore] = useState({ key: '', count: PAGE_SIZE })
   const limit = more.key === filterKey ? more.count : PAGE_SIZE
   const shown = filtered.slice(0, limit)

@@ -7,6 +7,7 @@ const crypto = require('crypto')
 const compression = require('compression')
 const nodemailer = require('nodemailer')
 const { autoTranslateProduct, autoTranslateDescription } = require('./translate')
+const catalogCache = require('./catalog-cache')
 
 // Почта для восстановления пароля (любой SMTP, например бесплатный Gmail с паролем приложения)
 const mailer =
@@ -27,6 +28,13 @@ const PORT = process.env.PORT || 3000
 app.use(cors())
 // gzip: каталог из 800 товаров сжимается примерно с 210 КБ до ~25 КБ
 app.use(compression())
+
+// Любой изменяющий запрос (товары, цены, прайс-листы, заказы, оплата) сбрасывает кэш каталога,
+// когда ответ уже отправлен — к этому моменту данные в базе записаны
+app.use((req, res, next) => {
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) res.on('finish', catalogCache.invalidate)
+  next()
+})
 
 // --- Stripe (оплата картой) ---
 
@@ -595,8 +603,13 @@ app.patch('/orders/:id/status', requireAdmin, async (req, res) => {
 
 // --- Каталог ---
 
-async function buildCatalog(clientId, lang) {
+// Каталог для клиента на языке; готовый результат берётся из кэша в памяти
+function buildCatalog(clientId, lang) {
   const trLang = ['ru', 'en'].includes(lang) ? lang : null
+  return catalogCache.cached(`${clientId || ''}|${trLang || 'ro'}`, () => loadCatalog(clientId, trLang))
+}
+
+async function loadCatalog(clientId, trLang) {
   const [defaultLists] = await pool.query('SELECT id FROM price_lists WHERE is_default = TRUE LIMIT 1')
   const defaultListId = defaultLists[0].id
 

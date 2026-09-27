@@ -8,6 +8,7 @@
 //  - остальное — тип и описание товара: сначала встроенный словарь, затем бесплатный сервис MyMemory.
 // При любой ошибке часть названия остаётся как в оригинале.
 const pool = require('./db')
+const { invalidate: invalidateCatalog } = require('./catalog-cache')
 
 const TARGET_LANGS = ['ru', 'en']
 
@@ -243,6 +244,8 @@ async function autoTranslateProduct(productId, name, category) {
       console.error('Auto-translate failed:', err.message)
     }
   }
+  // перевод идёт в фоне уже после ответа админу — сбрасываем кэш, чтобы витрина увидела новые названия
+  invalidateCatalog()
 }
 
 // Описание переводим по предложениям: бесплатный MyMemory принимает до ~500 символов за запрос

@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
-import { apiFetch } from './api'
+import { apiFetch, useRefreshWhenShown } from './api'
 import { useLang } from './i18n'
 
 const STATUSES = ['new', 'pending_payment', 'paid', 'confirmed', 'shipped', 'delivered', 'cancelled']
 
-export default function Orders() {
+export default function Orders({ active = true }) {
   const { t, tr, unit } = useLang()
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
@@ -12,7 +12,7 @@ export default function Orders() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [savingId, setSavingId] = useState(null)
 
-  useEffect(() => {
+  const load = () =>
     apiFetch('/orders')
       .then((res) => {
         if (!res.ok) throw new Error(t('serverError'))
@@ -21,8 +21,14 @@ export default function Orders() {
       .then(setOrders)
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
+
+  useEffect(() => {
+    load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // новые заказы могли прийти, пока вкладка была скрыта
+  useRefreshWhenShown(active, load)
 
   const changeStatus = async (id, status) => {
     setSavingId(id)
